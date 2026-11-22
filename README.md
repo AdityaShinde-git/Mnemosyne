@@ -165,3 +165,5 @@ See [docs/architecture.md](docs/architecture.md), [docs/decisions](docs/decision
 ## Current boundaries
 
 The application-level API key is intended for a local/personal deployment; production multi-user authentication, app-level content encryption/key rotation, remote deployment, and a broad real-world retrieval benchmark remain follow-up work. Supabase provides encryption at rest at the storage layer, but that is not client-side encryption.
+#   M n e m o s y n e  
+ 
