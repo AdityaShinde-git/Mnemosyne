@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "title": "Postgres knowledge store",
+      "content": "PostgreSQL can keep relational notes, full-text search, and pgvector embeddings together. HNSW indexes make approximate nearest-neighbor retrieval practical without a separate vector database."
+    },
+    {
+      "title": "Reciprocal rank fusion",
+      "content": "Reciprocal Rank Fusion combines independent ranked lists. It helps exact keyword matches and semantic vector results complement one another in hybrid search."
+    },
+    {
+      "title": "Reliable background jobs",
+      "content": "A PostgreSQL worker can claim queued jobs with SELECT FOR UPDATE SKIP LOCKED, then retry failures with exponential backoff and idempotent processing."
+    },
+    {
+      "title": "Local-first privacy",
+      "content": "Local-first software keeps personal knowledge on infrastructure the user controls. Local embeddings and an optional self-hosted Ollama server avoid sending private notes to a hosted model."
+    }
+  ],
+  "queries": [
+    {
+      "query": "pgvector HNSW nearest neighbor database",
+      "relevant_titles": ["Postgres knowledge store"]
+    },
+    {
+      "query": "merge keyword and semantic ranked search lists",
+      "relevant_titles": ["Reciprocal rank fusion"]
+    },
+    {
+      "query": "claim jobs safely and retry after errors",
+      "relevant_titles": ["Reliable background jobs"]
+    },
+    {
+      "query": "keep notes private and embed without cloud",
+      "relevant_titles": ["Local-first privacy"]
+    }
+  ]
+}

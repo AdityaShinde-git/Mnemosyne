@@ -1,0 +1,12 @@
+.env
+creds.txt
+.git
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+*.py[cod]
+*.egg-info
+tests
+plan.md
+Mnemosyne.jpg

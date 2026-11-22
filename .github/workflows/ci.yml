@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: mnemosyne
+          POSTGRES_USER: mnemosyne
+          POSTGRES_PASSWORD: mnemosyne
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mnemosyne -d mnemosyne"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://mnemosyne:mnemosyne@localhost:5432/mnemosyne
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy src/mnemosyne --ignore-missing-imports
+      - run: pytest
+      - run: docker build --tag mnemosyne .
+

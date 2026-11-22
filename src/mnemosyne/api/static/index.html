@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111210">
+    <title>Mnemosyne — your second brain</title>
+    <link rel="stylesheet" href="/static/styles.css?v=7">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/" aria-label="Mnemosyne home">
+          <span class="brand-mark">M<span>.</span></span>
+          <span class="brand-copy"><strong>mnemosyne</strong><small>PERSONAL KNOWLEDGE</small></span>
+        </a>
+        <button class="capture-button" id="open-capture"><span>＋</span> Capture a thought <kbd>⌘ K</kbd></button>
+        <div class="nav-label">WORKSPACE</div>
+        <nav class="navigation" aria-label="Workspace">
+          <button class="nav-item active" data-view="graph"><span class="nav-icon graph-icon"></span>Graph<span class="nav-count" id="count-items">0</span></button>
+          <button class="nav-item" data-view="search"><span class="nav-icon search-icon"></span>Search</button>
+          <button class="nav-item" data-view="timeline"><span class="nav-icon time-icon"></span>Timeline</button>
+          <button class="nav-item" data-view="connections"><span class="nav-icon link-icon"></span>Connections<span class="nav-dot"></span></button>
+          <button class="nav-item" data-view="decisions"><span class="nav-icon decision-icon"></span>Decisions</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="privacy-card"><span class="privacy-dot"></span><div><strong>Your memory, your rules</strong><small>Preview sends text to AI</small></div><span class="lock-icon">⌑</span></div>
+          <button class="settings-link" id="api-key-button"><span class="settings-icon">⚙</span> API key & settings</button>
+          <div class="user-row"><div class="avatar">M</div><div><strong>My Mnemosyne</strong><small>Local workspace</small></div><span class="more">···</span></div>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Workspace</span><i>/</i><strong id="view-label">Graph</strong></div>
+          <div class="topbar-actions"><span class="sync-state" id="sync-state"><span></span>Connecting</span><button class="icon-button" id="refresh-button" aria-label="Refresh">↻</button><button class="avatar small-avatar">M</button></div>
+        </header>
+        <section class="view-panel" id="graph-view">
+          <div class="view-heading">
+            <div><p class="eyebrow">YOUR KNOWLEDGE, CONNECTED</p><h1>Memory graph<span class="heading-dot">.</span></h1><p class="subheading">A living map of the things you’ve learned, noticed, and decided.</p></div>
+            <div class="heading-actions"><button class="space-picker-trigger" id="space-picker-button" type="button" aria-haspopup="dialog" aria-controls="space-picker-dialog"><span class="space-picker-icon" aria-hidden="true">⌘</span><span id="current-space-name">Personal</span><span class="space-picker-chevron" aria-hidden="true">⌄</span></button><button class="button secondary" id="new-space">＋ Space</button><button class="button secondary" id="manage-space">Manage</button><button class="button secondary" id="graph-filter">All nodes <span>⌄</span></button><button class="button secondary" id="upload-document">↑ Add document</button><input id="document-file" type="file" accept=".md,.markdown,.txt,.pdf"><button class="button primary" id="graph-add">＋ Open notepad</button></div>
+          </div>
+          <div class="graph-toolbar">
+            <div class="graph-legend"><span><i class="legend-dot green"></i> Notes</span><span><i class="legend-dot yellow"></i> Documents</span><span><i class="legend-dot violet"></i> Decisions</span></div>
+            <div class="graph-tools"><span id="graph-count">0 notes · 0 connections</span><button class="tool-button" id="zoom-out" aria-label="Zoom out">−</button><button class="tool-button" id="zoom-in" aria-label="Zoom in">＋</button><button class="tool-button" id="center-graph" aria-label="Center graph">⌖</button></div>
+          </div>
+          <div class="graph-stage" id="graph-stage">
+            <svg id="graph-canvas" viewBox="0 0 1100 680" role="img" aria-label="Interactive graph of your notes"></svg>
+            <div class="graph-empty" id="graph-empty"><div class="empty-orbit"><span></span><i></i><b></b></div><h2>Your graph starts with a thought</h2><p>Capture a note or import a file. Connections will appear as your knowledge grows.</p><button class="button primary" id="empty-add">＋ Capture your first note</button></div>
+            <div class="graph-tip"><span class="tip-key">DRAG</span> canvas to pan · <span class="tip-key">DRAG</span> a node to move · <span class="tip-key">CLICK</span> a node or line to manage it</div>
+            <div class="link-mode-banner hidden" id="link-mode-banner"><span>Choose a target node on the graph</span><button class="button secondary" id="cancel-link-mode" type="button">Cancel connection</button></div>
+          </div>
+        </section>
+
+        <section class="view-panel hidden" id="search-view">
+          <div class="view-heading compact-heading"><div><p class="eyebrow">FIND THE THREAD</p><h1>Search your memory<span class="heading-dot">.</span></h1><p class="subheading">Search exact phrases and related ideas in one place.</p></div></div>
+          <form class="search-form" id="search-form"><span class="large-search-icon"></span><input id="search-query" type="search" placeholder="Try “what did I learn about…”" autocomplete="off"><select id="search-mode" aria-label="Search mode"><option value="hybrid">Hybrid</option><option value="text">Text</option><option value="vector">Vector</option></select><kbd>ENTER</kbd><button class="button primary" type="submit">Search</button></form>
+          <div class="search-meta" id="search-meta">Hybrid combines full-text ranking with vector similarity using Reciprocal Rank Fusion.</div>
+          <div class="result-list" id="search-results"></div>
+        </section>
+
+        <section class="view-panel hidden" id="timeline-view">
+          <div class="view-heading compact-heading"><div><p class="eyebrow">HOW YOUR IDEAS EVOLVE</p><h1>Timeline<span class="heading-dot">.</span></h1><p class="subheading">A chronological view of what you’ve been collecting.</p></div></div>
+          <div class="timeline-list" id="timeline-list"></div>
+        </section>
+
+        <section class="view-panel hidden" id="connections-view">
+          <div class="view-heading compact-heading"><div><p class="eyebrow">A LITTLE DISTANCE, A NEW IDEA</p><h1>Forgotten connections<span class="heading-dot">.</span></h1><p class="subheading">Related notes from different moments in time, not already linked.</p></div></div>
+          <div class="connection-list" id="connection-list"></div>
+        </section>
+
+        <section class="view-panel hidden" id="decisions-view">
+          <div class="view-heading compact-heading"><div><p class="eyebrow">REMEMBER THE WHY</p><h1>Decision log<span class="heading-dot">.</span></h1><p class="subheading">Choices, reasoning, and the dates you want to revisit them.</p></div><button class="button primary" id="new-decision">＋ Log a decision</button></div>
+          <div class="decision-list" id="decision-list"></div>
+        </section>
+      </main>
+
+      <aside class="detail-panel" id="detail-panel">
+        <div class="detail-top"><span class="eyebrow">QUICK VIEW</span><button class="icon-button" id="close-detail" aria-label="Close details">×</button></div>
+        <div id="detail-content" class="detail-placeholder"><div class="detail-orbit">✳</div><strong>Follow a thought</strong><p>Select a node or search result to see its details and related notes.</p></div>
+      </aside>
+    </div>
+
+    <dialog id="capture-dialog" class="modal">
+      <form method="dialog" id="capture-form">
+        <div class="modal-heading"><div><p class="eyebrow">YOUR NOTEPAD</p><h2>Write it out<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <label for="capture-content">Write it in your own words</label><textarea id="capture-content" required maxlength="20000" rows="10" placeholder="A rough paragraph is fine. Describe what happened, what relates, or what you are trying to understand."></textarea>
+        <label for="capture-source">Source link <span class="optional">optional</span></label><input id="capture-source" maxlength="2048" placeholder="https://…">
+        <p class="capture-hint">A free OpenRouter model will turn this paragraph into an editable draft. Ling is tried first; the free NVIDIA model is used only if Ling is rate-limited. Paid fallbacks are disabled. Your text is sent to OpenRouter for interpretation; nothing is saved until you review and approve the map.</p>
+        <div class="modal-actions"><span class="form-message" id="capture-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="preview-capture" type="button">Preview map <span>↗</span></button></div>
+      </form>
+    </dialog>
+
+      <dialog id="link-dialog" class="modal">
+        <form method="dialog" id="link-form">
+          <div class="modal-heading"><div><p class="eyebrow">GRAPH LINK</p><h2>Name this connection<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+          <p class="link-source" id="link-source-label"></p>
+          <label for="link-label">Connection name <span class="optional">optional</span></label><input id="link-label" maxlength="120" placeholder="e.g. depends on, inspired by">
+          <p class="capture-hint">You selected the target directly on the graph.</p>
+          <div class="modal-actions"><span class="form-message" id="link-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-link" type="submit">Connect <span>↗</span></button></div>
+        </form>
+      </dialog>
+
+    <dialog id="map-preview-dialog" class="modal">
+      <div class="modal-form">
+        <div class="modal-heading"><div><p class="eyebrow">REVIEW YOUR MAP</p><h2>One thought, clearly linked<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <div id="map-preview-content" class="map-preview"></div>
+        <div class="modal-actions"><span class="form-message" id="map-message"></span><button class="button secondary" id="edit-capture" type="button">Back to notepad</button><button class="button primary" id="save-capture" type="button">Add to graph <span>↗</span></button></div>
+      </div>
+    </dialog>
+
+    <dialog id="space-picker-dialog" class="space-galaxy-dialog">
+      <div class="galaxy-shell">
+        <header class="galaxy-header">
+          <div><p class="eyebrow">YOUR KNOWLEDGE UNIVERSES</p><h2>Choose a space<span class="heading-dot">.</span></h2><p>Each nucleus opens its own living graph.</p></div>
+          <div class="galaxy-controls"><label class="visually-hidden" for="space-search">Search spaces</label><input id="space-search" type="search" placeholder="Search spaces…" autocomplete="off"><button class="icon-button" type="button" data-close-dialog aria-label="Close space selector">×</button></div>
+        </header>
+        <section class="space-galaxy-stage" id="space-galaxy-stage" aria-label="Space galaxy">
+          <div class="galaxy-nebula" aria-hidden="true"></div>
+          <div class="space-galaxy-nuclei" id="space-galaxy-nuclei"></div>
+          <aside class="galaxy-insight" id="space-galaxy-insight" aria-live="polite"></aside>
+          <p class="capture-hint hidden" id="space-search-empty">No spaces match that search.</p>
+        </section>
+        <footer class="galaxy-footer"><span>Hover or focus a nucleus to explore · Select one to enter</span><button class="button primary" id="space-picker-create" type="button">＋ Create a space</button></footer>
+      </div>
+    </dialog>
+
+    <dialog id="node-edit-dialog" class="modal">
+      <form method="dialog" id="node-edit-form">
+        <div class="modal-heading"><div><p class="eyebrow">EDIT NODE</p><h2>Update this thought<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <label for="node-edit-title">Title</label><input id="node-edit-title" required maxlength="500">
+        <label for="node-edit-content">Content</label><textarea id="node-edit-content" required rows="8"></textarea>
+        <div class="modal-actions"><span class="form-message" id="node-edit-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-node-edit" type="submit">Save changes</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="edge-edit-dialog" class="modal">
+      <form method="dialog" id="edge-edit-form">
+        <div class="modal-heading"><div><p class="eyebrow">CONNECTION</p><h2 id="edge-edit-title">Edit the relationship</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <p class="link-source" id="edge-endpoints"></p>
+        <label for="edge-edit-label">Connection name <span class="optional">optional</span></label><input id="edge-edit-label" maxlength="120" placeholder="e.g. depends on, inspired by">
+        <p class="capture-hint" id="edge-edit-hint"></p>
+        <div class="modal-actions"><button class="button danger-button" id="delete-edge" type="button">Delete connection</button><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-edge-edit" type="submit">Save</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="space-dialog" class="modal">
+      <form method="dialog" id="space-form">
+        <div class="modal-heading"><div><p class="eyebrow">YOUR SPACES</p><h2>Separate graphs, one workspace<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <p class="capture-hint">Each space has its own nodes, decisions, documents, and connections.</p>
+        <label for="space-name">Space name</label><input id="space-name" required maxlength="120" placeholder="e.g. Product ideas">
+        <p class="capture-hint" id="space-form-message" role="status"></p>
+        <div class="modal-actions"><button class="button danger-button" id="delete-space" type="button">Delete empty space</button><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-space" type="submit">Save space</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="document-viewer-dialog" class="document-viewer">
+      <div class="document-viewer-shell">
+        <header class="document-viewer-header">
+          <div class="document-viewer-title"><span class="document-file-mark">▤</span><div><h2 id="document-viewer-name">Document preview</h2><p id="document-viewer-status">Saved in this space</p></div></div>
+          <button class="icon-button" id="close-document-viewer" type="button" aria-label="Close document preview">×</button>
+        </header>
+        <div class="document-viewer-body">
+          <section class="document-page" id="document-page" aria-label="Document preview"></section>
+          <aside class="document-insights">
+            <p class="eyebrow">SPACE CONTEXT</p>
+            <h3>Related ideas</h3>
+            <p class="capture-hint">Connections from this space that may help you explore the document.</p>
+            <div class="document-related" id="document-related"></div>
+            <div class="document-insight-divider"></div>
+            <h3>Extracted text</h3>
+            <p class="document-extracted" id="document-extracted"></p>
+          </aside>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="modal">
+      <div class="modal-form">
+        <div class="modal-heading"><div><p class="eyebrow">PLEASE CONFIRM</p><h2 id="confirm-title">Delete this item?</h2></div><button class="icon-button" type="button" data-confirm-cancel aria-label="Close">×</button></div>
+        <p class="capture-hint" id="confirm-message"></p>
+        <div class="modal-actions"><button class="button secondary" type="button" data-confirm-cancel>Cancel</button><button class="button danger-button" id="confirm-action" type="button">Delete</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="decision-dialog" class="modal">
+      <form method="dialog" id="decision-form">
+          <div class="modal-heading"><div><p class="eyebrow">DECISION NODE</p><h2>Capture the choice<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <label for="decision-question">Topic or question</label><input id="decision-question" required maxlength="1000" placeholder="What are you deciding, and in what context?">
+        <label for="decision-choice">Choice</label><textarea id="decision-choice" required rows="2" placeholder="What did you decide?"></textarea>
+        <label for="decision-rationale">Reasoning and context</label><textarea id="decision-rationale" rows="4" placeholder="Why this choice? What matters, and what trade-offs did you consider?"></textarea>
+        <label for="decision-revisit">Revisit on <span class="optional">optional</span></label><input id="decision-revisit" type="datetime-local">
+        <div class="modal-actions"><span class="form-message" id="decision-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-decision" type="submit">Save decision <span>↗</span></button></div>
+      </form>
+    </dialog>
+
+    <dialog id="decision-edit-dialog" class="modal">
+      <form method="dialog" id="decision-edit-form">
+        <div class="modal-heading"><div><p class="eyebrow">EDIT DECISION NODE</p><h2>Update the choice and its why<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <label for="decision-edit-question">Topic or question</label><input id="decision-edit-question" required maxlength="1000">
+        <label for="decision-edit-choice">Choice</label><textarea id="decision-edit-choice" required rows="2"></textarea>
+        <label for="decision-edit-rationale">Reasoning and context</label><textarea id="decision-edit-rationale" rows="4"></textarea>
+        <label for="decision-edit-status">Status</label><select id="decision-edit-status"><option value="active">Active</option><option value="completed">Completed</option><option value="reversed">Reversed</option></select>
+        <label for="decision-edit-outcome">Outcome <span class="optional">optional</span></label><textarea id="decision-edit-outcome" rows="2" placeholder="What happened after the decision?"></textarea>
+        <label for="decision-edit-revisit">Revisit on <span class="optional">optional</span></label><input id="decision-edit-revisit" type="datetime-local">
+        <div class="modal-actions"><span class="form-message" id="decision-edit-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-decision-edit" type="submit">Save decision</button></div>
+      </form>
+    </dialog>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/static/app.js?v=14" defer></script>
+  </body>
+</html>
