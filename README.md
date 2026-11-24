@@ -132,8 +132,9 @@ provider fallbacks, and set a zero-dollar price cap. Free-model availability and
 controlled by OpenRouter and may change. The
 model can still misunderstand text: review and edit the main title, topics, evidence, and named
 connections, and resolve or ignore clarification questions. Nothing is written to the graph until
-you select **Add to graph**. Do not send sensitive notes if you are not comfortable with the
-OpenRouter/provider data handling.
+you select **Add to graph**. Evidence that is not an exact excerpt from the paragraph is cleared
+and flagged in the preview for review. Do not send sensitive notes if you are not comfortable with
+the OpenRouter/provider data handling.
 
 The interpreter is designed to work with informal, fragmented, or self-correcting wording and can
 draft up to 20 new nodes and 24 direct connections. It follows explicitly stated group sizes and

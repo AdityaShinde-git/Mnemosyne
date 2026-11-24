@@ -6,7 +6,6 @@ from mnemosyne.config import Settings
 from mnemosyne.schemas import DraftNode, GraphDraftResponse, GraphDraftResult
 from mnemosyne.services import graph_drafts
 from mnemosyne.services.graph_drafts import (
-    GraphDraftError,
     GraphDraftNotConfigured,
     GraphDraftRateLimited,
 )
@@ -391,40 +390,17 @@ async def test_graph_draft_accepts_openrouter_text_content_blocks(
 
 
 @pytest.mark.asyncio
-async def test_graph_draft_rejects_unverifiable_evidence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    invalid_draft = {**VALID_DRAFT, "nodes": [dict(VALID_DRAFT["nodes"][0])]}
-    invalid_draft["nodes"][0]["evidence"] = ["create a moon base"]
-    FakeAsyncClient.response = FakeResponse(json.dumps(invalid_draft))
-    FakeAsyncClient.responses = []
-    FakeAsyncClient.requests = []
-    monkeypatch.setattr(
-        graph_drafts,
-        "get_settings",
-        lambda: Settings(openrouter_api_key="test-key"),
-    )
-    monkeypatch.setattr(graph_drafts.httpx, "AsyncClient", FakeAsyncClient)
-
-    with pytest.raises(GraphDraftError, match="evidence"):
-        await graph_drafts.create_graph_draft(
-            "I want to start a community garden.",
-            "Personal",
-            [],
-        )
-
-
-@pytest.mark.asyncio
-async def test_graph_draft_retries_unverifiable_evidence_with_free_backup(
+async def test_graph_draft_clears_unverifiable_evidence_and_returns_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invalid_draft = json.loads(json.dumps(VALID_DRAFT))
-    invalid_draft["nodes"][0]["evidence"] = ["a thriving garden"]
-    FakeAsyncClient.response = FakeResponse(json.dumps(VALID_DRAFT))
-    FakeAsyncClient.responses = [
-        FakeResponse(json.dumps(invalid_draft)),
-        FakeResponse(json.dumps(VALID_DRAFT)),
+    invalid_draft["nodes"][0]["evidence"] = ["create a moon base"]
+    invalid_draft["relationships"][0]["evidence"] = "invented relationship evidence"
+    invalid_draft["questions"] = [
+        {"question": "Does the project need irrigation?", "evidence": "water the garden"}
     ]
+    FakeAsyncClient.response = FakeResponse(json.dumps(invalid_draft))
+    FakeAsyncClient.responses = []
     FakeAsyncClient.requests = []
     monkeypatch.setattr(
         graph_drafts,
@@ -439,12 +415,11 @@ async def test_graph_draft_retries_unverifiable_evidence_with_free_backup(
         [],
     )
 
-    assert draft.model == graph_drafts.OPENROUTER_FREE_FALLBACK_MODEL
-    assert [request["model"] for request in FakeAsyncClient.requests] == [
-        graph_drafts.OPENROUTER_MODEL,
-        graph_drafts.OPENROUTER_FREE_FALLBACK_MODEL,
-    ]
-    assert "contiguous verbatim excerpt" in FakeAsyncClient.requests[1]["messages"][-1]["content"]
+    assert draft.nodes[0].evidence == []
+    assert draft.relationships[0].evidence == ""
+    assert draft.questions[0].evidence is None
+    assert draft.evidence_warnings
+    assert len(FakeAsyncClient.requests) == 1
 
 
 @pytest.mark.asyncio

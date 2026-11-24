@@ -156,7 +156,7 @@ class DraftNode(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     kind: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=800)
-    evidence: list[str] = Field(min_length=1, max_length=3)
+    evidence: list[str] = Field(max_length=3)
 
     _validate_title = field_validator("title")(_require_text)
     _validate_kind = field_validator("kind")(_require_text)
@@ -167,11 +167,8 @@ class DraftRelationship(BaseModel):
     source: str = Field(min_length=1, max_length=64)
     target: str = Field(min_length=1, max_length=64)
     label: str = Field(max_length=120)
-    evidence: str = Field(min_length=1, max_length=240)
+    evidence: str = Field(max_length=240)
     confidence: Literal["high", "medium", "low"]
-
-    _validate_evidence = field_validator("evidence")(_require_text)
-
 
 class DraftQuestion(BaseModel):
     question: str = Field(min_length=1, max_length=400)
@@ -191,6 +188,7 @@ class GraphDraftResponse(BaseModel):
 
 class GraphDraftResult(GraphDraftResponse):
     model: str
+    evidence_warnings: list[str] = Field(default_factory=list, max_length=5)
 
 
 class EdgeUpdate(BaseModel):

@@ -30,10 +30,6 @@ class GraphDraftCountMismatch(GraphDraftError):
     pass
 
 
-class GraphDraftEvidenceError(GraphDraftError):
-    pass
-
-
 def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().casefold()
 
@@ -104,17 +100,28 @@ def _response_text(content: object) -> str:
     raise TypeError("Graph draft content is not text")
 
 
-def _validate_draft_evidence(draft: GraphDraftResponse, content: str) -> None:
+def _sanitize_draft_evidence(draft: GraphDraftResponse, content: str) -> list[str]:
     source = _evidence_tokens(content)
-    evidence = [phrase for node in draft.nodes for phrase in node.evidence]
-    evidence.extend(link.evidence for link in draft.relationships)
-    evidence.extend(
-        question.evidence for question in draft.questions if question.evidence is not None
-    )
-    if any(not _contains_evidence(source, phrase) for phrase in evidence):
-        raise GraphDraftEvidenceError(
-            "The model returned evidence that was not in your paragraph. Try again."
-        )
+    unverified = False
+    for node in draft.nodes:
+        verified = [phrase for phrase in node.evidence if _contains_evidence(source, phrase)]
+        if not node.evidence or len(verified) != len(node.evidence):
+            node.evidence = verified
+            unverified = True
+    for relationship in draft.relationships:
+        if not _contains_evidence(source, relationship.evidence):
+            relationship.evidence = ""
+            unverified = True
+    for question in draft.questions:
+        if question.evidence is not None and not _contains_evidence(source, question.evidence):
+            question.evidence = None
+            unverified = True
+    if unverified:
+        return [
+            "Some model-provided evidence was not an exact excerpt from the paragraph and was "
+            "cleared. Review nodes and connections marked “No source evidence” before adding."
+        ]
+    return []
 
 
 def _validate_relationship_endpoints(
@@ -245,7 +252,6 @@ async def create_graph_draft(
     ]
 
     incomplete_draft: GraphDraftCountMismatch | None = None
-    unverifiable_evidence: GraphDraftEvidenceError | None = None
     for model in (OPENROUTER_MODEL, OPENROUTER_FREE_FALLBACK_MODEL):
         try:
             draft = await _request_draft(
@@ -258,11 +264,6 @@ async def create_graph_draft(
         except GraphDraftRateLimited as error:
             if model == OPENROUTER_MODEL:
                 continue
-            if unverifiable_evidence is not None:
-                raise GraphDraftRateLimited(
-                    "The first free model returned unverifiable evidence and the backup model "
-                    "is temporarily rate-limited. Retry shortly; no paid fallback was used."
-                ) from error
             if incomplete_draft is not None:
                 raise GraphDraftError(
                     "The first free model returned too few nodes or connections, and the "
@@ -272,43 +273,22 @@ async def create_graph_draft(
                 "Both free models are temporarily rate-limited. Retry shortly; "
                 "no paid fallback was used."
             ) from error
-        except GraphDraftEvidenceError as error:
-            if model == OPENROUTER_MODEL:
-                unverifiable_evidence = error
-                messages = [
-                    *messages,
-                    {
-                        "role": "user",
-                        "content": (
-                            "Your previous draft was rejected because its evidence did not match "
-                            "the paragraph. Retry with evidence copied as a contiguous verbatim "
-                            "excerpt from the paragraph, preserving the original words. Do not "
-                            "combine separate phrases or paraphrase evidence; omit unsupported "
-                            "nodes and relationships."
-                        ),
-                    },
-                ]
-                continue
-            raise GraphDraftEvidenceError(
-                "The free models could not return verifiable evidence for this paragraph. "
-                "Try again or simplify the wording."
-            ) from error
         except GraphDraftCountMismatch as error:
             if model == OPENROUTER_MODEL:
                 incomplete_draft = error
                 continue
-            if unverifiable_evidence is not None:
-                raise GraphDraftCountMismatch(
-                    "The first free model returned unverifiable evidence, and the backup model "
-                    "returned fewer nodes or connections than requested. Retry the draft."
-                ) from error
             if incomplete_draft is not None:
                 raise GraphDraftCountMismatch(
                     "Both free models returned fewer nodes or connections than requested. "
                     f"{error}"
                 ) from error
             raise
-        return GraphDraftResult(model=model, **draft.model_dump())
+        evidence_warnings = _sanitize_draft_evidence(draft, content)
+        return GraphDraftResult(
+            model=model,
+            evidence_warnings=evidence_warnings,
+            **draft.model_dump(),
+        )
 
     raise GraphDraftRateLimited(
         "Both free models are temporarily rate-limited. Retry shortly; no paid fallback was used."
@@ -408,7 +388,6 @@ async def _request_draft(
         raise GraphDraftError("OpenRouter returned an invalid graph draft. Try again.") from error
 
     _validate_requested_quantity(draft, content)
-    _validate_draft_evidence(draft, content)
     _validate_relationship_endpoints(draft, existing_node_ids)
     if not _explicitly_names_connection_label(content):
         for relationship in draft.relationships:
