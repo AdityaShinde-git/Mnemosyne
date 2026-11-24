@@ -2,6 +2,8 @@ const API = "/api";
 const DEFAULT_SPACE_ID = "00000000-0000-0000-0000-000000000001";
 const NODE_POSITIONS_KEY = "mnemosyne-node-positions";
 const RECENT_DRAFT_NODE_KINDS_KEY = "mnemosyne-recent-draft-node-kinds";
+const ACTIVE_VIEW_KEY = "mnemosyne-active-view";
+const WORKSPACE_VIEWS = new Set(["graph", "search", "timeline", "connections", "decisions"]);
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 function readNodePositions() {
@@ -200,9 +202,25 @@ function setSync(online, text = online ? "Connected" : "Offline") {
   node.lastChild.textContent = text;
 }
 
+function readActiveView() {
+  try {
+    const saved = sessionStorage.getItem(ACTIVE_VIEW_KEY);
+    return WORKSPACE_VIEWS.has(saved) ? saved : "spaces";
+  } catch (error) {
+    console.error("Could not restore the active view.", error);
+    return "spaces";
+  }
+}
+
 function showView(name) {
   state.view = name;
   const isSpacesHome = name === "spaces";
+  try {
+    if (isSpacesHome) sessionStorage.removeItem(ACTIVE_VIEW_KEY);
+    else sessionStorage.setItem(ACTIVE_VIEW_KEY, name);
+  } catch (error) {
+    console.error("Could not save the active view.", error);
+  }
   $("#app-shell").classList.toggle("spaces-home-mode", isSpacesHome);
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
   $$(".view-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== `${name}-view`));
@@ -2707,8 +2725,9 @@ document.addEventListener("keydown", (event) => {
 async function initializeWorkspace() {
   try {
     await loadSpaces();
-    showView("spaces");
-    if (state.spaceId) void loadGraph(false);
+    const initialView = state.spaceId ? readActiveView() : "spaces";
+    showView(initialView);
+    if (state.spaceId && initialView === "spaces") void loadGraph(false);
   } catch (error) {
     setSync(false, "Not connected");
     toast(error.message);
