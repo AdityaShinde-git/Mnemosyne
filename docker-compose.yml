@@ -33,8 +33,11 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hash}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-minilm}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     ports:
       - "8000:8000"
+    volumes:
+      - mnemosyne_documents:/app/documents
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -47,10 +50,13 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hash}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-minilm}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    volumes:
+      - mnemosyne_documents:/app/documents
     depends_on:
       migrate:
         condition: service_completed_successfully
 
 volumes:
   mnemosyne_db:
+  mnemosyne_documents:
 

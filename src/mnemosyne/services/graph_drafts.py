@@ -170,9 +170,12 @@ async def create_graph_draft(
     existing_nodes: list[dict[str, str]],
 ) -> GraphDraftResult:
     settings = get_settings()
-    if settings.openrouter_api_key is None:
+    if (
+        settings.openrouter_api_key is None
+        or not settings.openrouter_api_key.get_secret_value()
+    ):
         raise GraphDraftNotConfigured(
-            "Add OPENROUTER_API_KEY to your local .env to interpret notes."
+            "Set OPENROUTER_API_KEY in your environment or .env to interpret notes."
         )
 
     node_context = [

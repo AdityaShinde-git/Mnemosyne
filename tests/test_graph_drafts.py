@@ -135,8 +135,16 @@ class FakeAsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_graph_draft_requires_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(graph_drafts, "get_settings", lambda: Settings(openrouter_api_key=None))
+@pytest.mark.parametrize("api_key", [None, ""])
+async def test_graph_draft_requires_openrouter_key(
+    monkeypatch: pytest.MonkeyPatch,
+    api_key: str | None,
+) -> None:
+    monkeypatch.setattr(
+        graph_drafts,
+        "get_settings",
+        lambda: Settings(openrouter_api_key=api_key),
+    )
 
     with pytest.raises(GraphDraftNotConfigured, match="OPENROUTER_API_KEY"):
         await graph_drafts.create_graph_draft("A paragraph.", "Personal", [])

@@ -29,12 +29,16 @@ Build a private, local-first knowledge engine that makes personal notes easier t
 
 ### 4. Memory — implemented
 
-- `[[wiki links]]` and backlinks, vector-suggested graph edges, related notes, and explainable forgotten connections.
+- Isolated spaces with `[[wiki links]]` and backlinks, vector-suggested graph edges,
+  related notes, and explainable forgotten connections.
 - Timeline endpoint and first-class decision log with revisit date and outcome.
 
 ### 5. UI and release basics — implemented
 
-- Dark graph-inspired web UI based on `Mnemosyne.jpg`, with capture, search modes, graph, timeline, connections, decisions, and API-key settings.
+- Dark graph-inspired web UI with capture, search modes, graph, timeline, connections,
+  decisions, space management, and API-key settings.
+- Notepad supports both a manual graph builder and optional AI-assisted drafts that can
+  be edited in the graph or form view before saving.
 - Local-first fonts/assets; no third-party analytics or font requests.
 - README, architecture notes, ADRs, contribution guide, changelog, evaluation fixture, and container build.
 
@@ -62,11 +66,14 @@ Markdown / text / PDF / public URL / quick capture
 - **Postgres job queue:** `SKIP LOCKED` avoids an additional Redis service and keeps retries observable.
 - **RRF:** text and vector lists are fused by rank, without assuming their raw scores are calibrated to each other.
 - **Embedding interface:** offline hash embeddings are the no-service baseline; Ollama is the local semantic provider. Store model name per chunk and reindex when changing models.
-- **Credential handling:** use `.env` locally; never check in `.env` or `creds.txt`. The supplied Supabase URI is configured only in the ignored local `.env`.
+- **Credential handling:** use the ignored `.env` for local secrets; never check in
+  `.env`, `creds.txt`, or private notes. Rotate any credential that is exposed.
 
 ## Remaining validation / production work
 
-The application tests, Ruff, mypy, JavaScript syntax check, retrieval fixture, and offline Alembic SQL generation are expected to run locally. A real PostgreSQL migration and live Supabase connectivity still need to be verified in an environment that can resolve/reach the supplied database; no remote migration should be applied until that succeeds.
+CI runs the PostgreSQL migration, Ruff, mypy, pytest, and container build. Hosted
+database connectivity and deployment are not claimed as validated; do not apply
+migrations to a shared database without inspecting and backing it up first.
 
 Before calling this production-ready:
 

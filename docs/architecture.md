@@ -11,9 +11,9 @@ FastAPI from the application package.
   `/api/*`.
 - **CLI (`src/mnemosyne/cli`)** captures, searches, imports, watches folders, and starts
   the worker.
-- **PostgreSQL + pgvector** stores source items, revisions, chunks, embeddings, graph
-  edges, decisions, and the worker queue. SQLite is used by tests for database-level
-  application behavior; it is not the deployment database.
+- **PostgreSQL + pgvector** stores spaces, source items, revisions, chunks, embeddings,
+  graph edges, decisions, and the worker queue. SQLite is used by tests for
+  database-level application behavior; it is not the deployment database.
 - **Worker (`src/mnemosyne/worker.py`)** claims ready jobs with `FOR UPDATE SKIP LOCKED`,
   performs ingestion or indexing, and retries failed jobs with bounded exponential
   backoff. Indexing chunks content, embeds it, and refreshes explicit wiki-link edges.
@@ -22,8 +22,8 @@ FastAPI from the application package.
 
 ## Data flow
 
-1. A note is captured through the API or CLI, or queued from a file, folder watcher, or
-   public URL.
+1. A note is captured in a space through the API or CLI, or queued from a file, folder
+   watcher, or public URL.
 2. `items` stores the current content. Edits preserve prior content in
    `item_revisions`; a SHA-256 content hash prevents duplicate captures.
 3. An `index_item` job is queued. The worker splits the content into chunks and stores
@@ -32,6 +32,14 @@ FastAPI from the application package.
    (RRF). Search can also be restricted to either retrieval mode.
 5. Graph, timeline, related-note, forgotten-connection, and decision views query the
    same database.
+
+## Graph drafting
+
+The notepad has two paths. Manual building starts an empty editable map and makes no
+model request. AI-assisted drafting is optional and requires `OPENROUTER_API_KEY`; it
+sends the paragraph and current-space node titles to the configured OpenRouter free
+models. The result remains a draft until a person reviews and saves it. Model output is
+not treated as verified evidence when its quoted text does not match the source.
 
 ## Database and migrations
 
@@ -47,10 +55,11 @@ does not imply that a remote database is migrated.
 
 ## Configuration and deployment
 
-`DATABASE_URL`, `API_KEY`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `OLLAMA_URL`, and
-`JOB_MAX_ATTEMPTS` are environment settings. The local Compose stack provides
-PostgreSQL/pgvector, a one-shot migration service, API, and worker. The API and worker
-must use the same database and embedding model.
+`DATABASE_URL`, `API_KEY`, `OPENROUTER_API_KEY`, `EMBEDDING_PROVIDER`,
+`EMBEDDING_MODEL`, `OLLAMA_URL`, and `JOB_MAX_ATTEMPTS` are environment settings. The
+local Compose stack provides PostgreSQL/pgvector, a one-shot migration service, API,
+and worker. The API and worker must use the same database and embedding model. Compose
+persists the database and uploaded originals in named volumes.
 
 The Compose database credentials are development defaults, not production credentials.
 Do not expose the service publicly without HTTPS and a production authentication and
