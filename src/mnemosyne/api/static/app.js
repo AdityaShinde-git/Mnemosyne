@@ -1,6 +1,7 @@
 const API = "/api";
 const DEFAULT_SPACE_ID = "00000000-0000-0000-0000-000000000001";
 const NODE_POSITIONS_KEY = "mnemosyne-node-positions";
+const RECENT_DRAFT_NODE_KINDS_KEY = "mnemosyne-recent-draft-node-kinds";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 function readNodePositions() {
@@ -22,16 +23,110 @@ function readNodePositions() {
   }
 }
 const state = {
-  view: "graph", graph: { nodes: [], edges: [] }, scale: 1,
+  view: "spaces", graph: { nodes: [], edges: [] }, scale: 1,
   offsetX: 0, offsetY: 0, selected: null, filter: "all",
   linkSourceId: null, linkTargetId: null, nodeDrag: null, suppressNodeClick: null,
   nodePositions: readNodePositions(), spaceId: localStorage.getItem("mnemosyne-space-id"),
   spaces: [], editingEdge: null, decisions: [], editingDecision: null, confirmResolver: null,
-  documentPreview: null, spaceTransitionTimer: null,
+  documentPreview: null,
 };
 const COLORS = { note: "#67d694", document: "#e2d571", bookmark: "#90a8d7", decision: "#9c87d8" };
 const FILTERS = ["all", "note", "document", "bookmark", "decision"];
-const DRAFT_NODE_KINDS = ["topic", "project", "person", "organization", "place", "event", "tool", "other"];
+const SUGGESTED_DRAFT_NODE_KINDS = [
+  "topic", "concept", "person", "organization", "place", "event", "project",
+  "programming language", "tool", "technology", "decision", "resource", "skill",
+];
+
+function recentDraftNodeKinds() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(RECENT_DRAFT_NODE_KINDS_KEY) || "[]");
+    if (!Array.isArray(stored)) throw new TypeError("Recent node types must be an array");
+    return stored.filter((kind) => typeof kind === "string" && kind.trim()).slice(0, 5);
+  } catch (error) {
+    console.error("Could not load recently used node types.", error);
+    return [];
+  }
+}
+
+function rememberDraftNodeKind(value) {
+  const kind = value.trim().slice(0, 64);
+  if (!kind) return;
+  const recent = [
+    kind,
+    ...recentDraftNodeKinds().filter((entry) => entry.toLocaleLowerCase() !== kind.toLocaleLowerCase()),
+  ].slice(0, 5);
+  try {
+    localStorage.setItem(RECENT_DRAFT_NODE_KINDS_KEY, JSON.stringify(recent));
+  } catch (error) {
+    console.error("Could not save recently used node types.", error);
+  }
+}
+
+function draftNodeKindEditor(value, onChange) {
+  const editor = document.createElement("div");
+  editor.className = "draft-type-editor";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.required = true;
+  input.maxLength = 64;
+  input.value = value;
+  input.placeholder = "Type any node category";
+  input.setAttribute("aria-label", "Node type");
+  input.addEventListener("input", () => onChange(input.value));
+  input.addEventListener("blur", () => {
+    input.value = input.value.trim();
+    onChange(input.value);
+    rememberDraftNodeKind(input.value);
+    renderSuggestions();
+  });
+  editor.append(input);
+
+  const suggestions = document.createElement("div");
+  suggestions.className = "draft-type-suggestions";
+  editor.append(suggestions);
+
+  function renderSuggestions() {
+    suggestions.replaceChildren();
+    const recent = recentDraftNodeKinds();
+    const groups = [
+      { title: "Recently used", kinds: recent },
+      {
+        title: "Suggestions",
+        kinds: SUGGESTED_DRAFT_NODE_KINDS
+          .filter((kind) => !recent.some((entry) => entry.toLocaleLowerCase() === kind.toLocaleLowerCase()))
+          .slice(0, 6),
+      },
+    ];
+    for (const group of groups) {
+      if (!group.kinds.length) continue;
+      const section = document.createElement("div");
+      section.className = "draft-type-suggestion-group";
+      const heading = document.createElement("span");
+      heading.textContent = group.title;
+      const choices = document.createElement("div");
+      choices.className = "draft-type-chip-list";
+      for (const kind of group.kinds) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "draft-type-chip";
+        chip.textContent = kind;
+        chip.addEventListener("click", () => {
+          input.value = kind;
+          onChange(kind);
+          rememberDraftNodeKind(kind);
+          input.focus();
+          renderSuggestions();
+        });
+        choices.append(chip);
+      }
+      section.append(heading, choices);
+      suggestions.append(section);
+    }
+  }
+
+  renderSuggestions();
+  return editor;
+}
 
 function apiKey() {
   return localStorage.getItem("mnemosyne-api-key") || "";
@@ -103,8 +198,16 @@ function setSync(online, text = online ? "Connected" : "Offline") {
 
 function showView(name) {
   state.view = name;
+  const isSpacesHome = name === "spaces";
+  $("#app-shell").classList.toggle("spaces-home-mode", isSpacesHome);
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
   $$(".view-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== `${name}-view`));
+  if (isSpacesHome) {
+    renderSpacesHome($("#spaces-home-search").value);
+    return;
+  }
+  const activeSpace = state.spaces.find((space) => space.id === state.spaceId);
+  $("#breadcrumb-space").textContent = activeSpace?.name || "Workspace";
   $("#view-label").textContent = name.charAt(0).toUpperCase() + name.slice(1);
   if (name === "graph") loadGraph();
   if (name === "timeline") loadTimeline();
@@ -118,6 +221,27 @@ function graphPoint(index, total, node) {
   const angle = (index / Math.max(total, 1)) * Math.PI * 2 + (hash % 23) / 100;
   const ring = 70 + (hash % 240);
   return { x: 550 + Math.cos(angle) * ring, y: 337 + Math.sin(angle) * ring * .65 };
+}
+
+function eventPointInSvg(event, svg) {
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  const pointer = svg.createSVGPoint();
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+  const point = pointer.matrixTransform(matrix.inverse());
+  return { x: point.x, y: point.y };
+}
+
+function zoomMainGraph(factor, anchorX = 550, anchorY = 340) {
+  const previousScale = state.scale;
+  const nextScale = Math.max(.45, Math.min(2.8, previousScale * factor));
+  if (nextScale === previousScale) return;
+  const ratio = nextScale / previousScale;
+  state.offsetX = anchorX - 550 - ratio * (anchorX - 550 - state.offsetX);
+  state.offsetY = anchorY - 340 - ratio * (anchorY - 340 - state.offsetY);
+  state.scale = nextScale;
+  renderGraph(state.graph);
 }
 
 function renderGraph(data) {
@@ -209,7 +333,7 @@ function renderGraph(data) {
       }
     }
   }
-  nodes.forEach((node, index) => {
+  nodes.forEach((node) => {
     const point = positions.get(node.id);
     const color = COLORS[node.type] || COLORS.note;
     const group = document.createElementNS(svg.namespaceURI, "g");
@@ -219,19 +343,25 @@ function renderGraph(data) {
     group.setAttribute("role", "button");
     group.setAttribute("tabindex", "0");
     group.setAttribute("aria-label", `Open node: ${node.title}`);
-    const hitArea = document.createElementNS(svg.namespaceURI, "rect");
-    hitArea.setAttribute("x", "-16"); hitArea.setAttribute("y", "-16");
-    hitArea.setAttribute("width", String(Math.max(36, labelWidth(node.title))));
-    hitArea.setAttribute("height", "32"); hitArea.setAttribute("fill", "transparent");
-    hitArea.setAttribute("pointer-events", "all");
     const halo = document.createElementNS(svg.namespaceURI, "circle");
-    halo.setAttribute("r", String(index % 7 === 0 ? 17 : 12)); halo.setAttribute("fill", color); halo.setAttribute("class", "node-halo");
+    halo.setAttribute("r", "14");
+    halo.setAttribute("fill", color);
+    halo.setAttribute("class", "node-halo");
     const core = document.createElementNS(svg.namespaceURI, "circle");
-    core.setAttribute("r", String(index % 7 === 0 ? 5 : 3.2)); core.setAttribute("fill", color); core.setAttribute("class", "node-core");
+    core.setAttribute("r", "6");
+    core.setAttribute("fill", color);
+    core.setAttribute("class", "node-core");
+    const kind = document.createElementNS(svg.namespaceURI, "text");
+    kind.setAttribute("x", "21");
+    kind.setAttribute("y", "-5");
+    kind.setAttribute("class", "node-kind");
+    kind.textContent = node.type.toLocaleUpperCase();
     const label = document.createElementNS(svg.namespaceURI, "text");
-    label.setAttribute("x", "9"); label.setAttribute("y", "3"); label.setAttribute("class", "node-label");
-    label.textContent = node.title.length > 22 ? `${node.title.slice(0, 21)}…` : node.title;
-    group.append(hitArea, halo, core, label);
+    label.setAttribute("x", "21");
+    label.setAttribute("y", "11");
+    label.setAttribute("class", "node-label");
+    label.textContent = node.title.length > 20 ? `${node.title.slice(0, 19)}…` : node.title;
+    group.append(halo, core, kind, label);
     group.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || state.nodeDrag || state.linkSourceId) return;
       const pointer = eventPointInDrawing(event, drawing);
@@ -321,11 +451,6 @@ function renderGraph(data) {
     });
     drawing.append(group);
   });
-}
-
-function labelWidth(title) {
-  const label = title.length > 22 ? 22 : title.length;
-  return label * 6 + 30;
 }
 
 function eventPointInDrawing(event, drawing) {
@@ -716,8 +841,14 @@ async function runSearch(query, mode = "hybrid") {
 
 function openCapture() {
   $("#capture-message").textContent = "";
+  updateCaptureWordCount();
   $("#capture-dialog").showModal();
   $("#capture-content").focus();
+}
+
+function updateCaptureWordCount() {
+  const count = $("#capture-content").value.trim().split(/\s+/).filter(Boolean).length;
+  $("#capture-word-count").textContent = `${count} ${count === 1 ? "word" : "words"}`;
 }
 
 async function renderCapturePreview() {
@@ -743,6 +874,9 @@ async function renderCapturePreview() {
       nodes: draft.nodes.map((node) => ({ ...node, selected: true })),
       relationships: draft.relationships.map((relationship) => ({ ...relationship, selected: true })),
       questions: draft.questions,
+      previewView: "map",
+      activeSelection: { type: "root" },
+      mapPositions: {},
     };
     renderDraftPreview();
     $("#capture-message").textContent = "";
@@ -753,20 +887,611 @@ async function renderCapturePreview() {
     $("#capture-message").textContent = error.message;
   } finally {
     button.disabled = false;
-    button.innerHTML = "Preview map <span>↗</span>";
+    button.innerHTML = "Shape into a map <span>↗</span>";
   }
+}
+
+function draftSvgElement(svg, name, attributes = {}) {
+  const element = document.createElementNS(svg.namespaceURI, name);
+  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+  return element;
+}
+
+function draftMapPoint(index, total) {
+  const center = { x: 550, y: 310 };
+  if (index < 8) {
+    const ringSize = Math.min(total, 8);
+    const angle = (index / ringSize) * Math.PI * 2 - Math.PI / 2;
+    return {
+      x: center.x + Math.cos(angle) * 265,
+      y: center.y + Math.sin(angle) * 170,
+    };
+  }
+  const outerIndex = index - 8;
+  const outerCount = total - 8;
+  const angle = (outerIndex / outerCount) * Math.PI * 2 - Math.PI / 2;
+  return {
+    x: center.x + Math.cos(angle) * 465,
+    y: center.y + Math.sin(angle) * 245,
+  };
+}
+
+function draftCanvasPoint(event, svg, pending) {
+  const viewportPoint = eventPointInSvg(event, svg);
+  if (!viewportPoint) return null;
+  const scale = pending.mapScale || 1;
+  return {
+    x: (viewportPoint.x - 550 - (pending.mapOffsetX || 0)) / scale + 550,
+    y: (viewportPoint.y - 310 - (pending.mapOffsetY || 0)) / scale + 310,
+  };
+}
+
+function applyDraftMapTransform(pending, svg) {
+  const drawing = svg.querySelector(".draft-map-drawing");
+  if (!drawing) return;
+  drawing.setAttribute(
+    "transform",
+    `translate(${550 + (pending.mapOffsetX || 0)} ${310 + (pending.mapOffsetY || 0)}) scale(${pending.mapScale || 1}) translate(-550 -310)`,
+  );
+}
+
+function zoomDraftMap(pending, svg, factor, anchorX = 550, anchorY = 310) {
+  const previousScale = pending.mapScale || 1;
+  const nextScale = Math.max(.45, Math.min(3, previousScale * factor));
+  if (nextScale === previousScale) return;
+  const ratio = nextScale / previousScale;
+  pending.mapOffsetX = anchorX - 550 - ratio * (anchorX - 550 - (pending.mapOffsetX || 0));
+  pending.mapOffsetY = anchorY - 310 - ratio * (anchorY - 310 - (pending.mapOffsetY || 0));
+  pending.mapScale = nextScale;
+  applyDraftMapTransform(pending, svg);
+  const level = $("#draft-map-zoom-level");
+  if (level) level.textContent = `${Math.round(nextScale * 100)}%`;
+}
+
+function setupDraftCanvas(pending, svg) {
+  let pan = null;
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const anchor = eventPointInSvg(event, svg);
+    if (anchor) zoomDraftMap(pending, svg, Math.exp(-event.deltaY * .001), anchor.x, anchor.y);
+  }, { passive: false });
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".draft-map-node, .draft-map-relationship")) return;
+    const point = eventPointInSvg(event, svg);
+    if (!point) return;
+    pan = {
+      point,
+      offsetX: pending.mapOffsetX || 0,
+      offsetY: pending.mapOffsetY || 0,
+      pointerId: event.pointerId,
+    };
+    svg.setPointerCapture(event.pointerId);
+    svg.classList.add("panning");
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    const point = eventPointInSvg(event, svg);
+    if (!point) return;
+    const scale = pending.mapScale || 1;
+    pending.mapOffsetX = Math.max(-900, Math.min(900,
+      pan.offsetX + (point.x - pan.point.x) / scale));
+    pending.mapOffsetY = Math.max(-500, Math.min(500,
+      pan.offsetY + (point.y - pan.point.y) / scale));
+    applyDraftMapTransform(pending, svg);
+  });
+  const finishPan = () => {
+    pan = null;
+    svg.classList.remove("panning");
+  };
+  svg.addEventListener("pointerup", finishPan);
+  svg.addEventListener("pointercancel", finishPan);
+}
+
+function renderDraftGraph(pending, svg) {
+  svg.replaceChildren();
+  pending.mapScale = pending.mapScale || 1;
+  const rootId = "root";
+  const rootPosition = pending.mapPositions.root || { x: 550, y: 310 };
+  const draftNodes = pending.nodes;
+  const draftIds = new Set(draftNodes.map((node) => node.id));
+  const externalIds = new Set();
+  for (const relationship of pending.relationships) {
+    for (const endpoint of [relationship.source, relationship.target]) {
+      if (endpoint !== rootId && !draftIds.has(endpoint)) externalIds.add(endpoint);
+    }
+  }
+  const externalNodes = [...externalIds]
+    .map((id) => state.graph.nodes.find((node) => node.id === id))
+    .filter(Boolean);
+  const mapNodes = [
+    ...draftNodes.map((node) => ({ ...node, external: false })),
+    ...externalNodes.map((node) => ({ ...node, external: true })),
+  ];
+  const positions = new Map([[rootId, rootPosition]]);
+  mapNodes.forEach((node, index) => {
+    positions.set(
+      node.id,
+      pending.mapPositions[node.id] || draftMapPoint(index, mapNodes.length),
+    );
+  });
+  const edgeReferences = [];
+  const drawing = draftSvgElement(svg, "g", { class: "draft-map-drawing" });
+  const edgeLayer = draftSvgElement(svg, "g", { class: "draft-map-edges" });
+  drawing.append(edgeLayer);
+  svg.append(drawing);
+
+  pending.relationships.forEach((relationship) => {
+    const from = positions.get(relationship.source);
+    const to = positions.get(relationship.target);
+    if (!from || !to) return;
+    const group = draftSvgElement(drawing, "g", {
+      class: `draft-map-relationship${relationship.selected ? "" : " excluded"}`,
+      role: "button",
+      tabindex: "0",
+      "aria-label": `Edit connection: ${relationship.label || "unnamed connection"}`,
+    });
+    const line = draftSvgElement(drawing, "line", {
+      x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: "draft-map-edge",
+    });
+    const hit = draftSvgElement(drawing, "line", {
+      x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: "draft-map-edge-hit",
+    });
+    const label = draftSvgElement(drawing, "text", {
+      x: (from.x + to.x) / 2,
+      y: (from.y + to.y) / 2 - 7,
+      class: "draft-map-edge-label",
+    });
+    label.textContent = relationship.label.trim();
+    group.append(line, hit, label);
+    const selectRelationship = () => {
+      pending.activeSelection = { type: "relationship", relationship };
+      setDraftMapSelection(pending, svg, group);
+    };
+    group.addEventListener("click", selectRelationship);
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectRelationship();
+      }
+    });
+    edgeLayer.append(group);
+    edgeReferences.push({ group, line, hit, label, relationship });
+  });
+
+  const updateEdges = (nodeId) => {
+    for (const edge of edgeReferences) {
+      if (edge.relationship.source !== nodeId && edge.relationship.target !== nodeId) continue;
+      const from = positions.get(edge.relationship.source);
+      const to = positions.get(edge.relationship.target);
+      if (!from || !to) continue;
+      for (const line of [edge.line, edge.hit]) {
+        line.setAttribute("x1", from.x);
+        line.setAttribute("y1", from.y);
+        line.setAttribute("x2", to.x);
+        line.setAttribute("y2", to.y);
+      }
+      edge.label.setAttribute("x", String((from.x + to.x) / 2));
+      edge.label.setAttribute("y", String((from.y + to.y) / 2 - 7));
+    }
+  };
+  const items = [
+    { id: rootId, title: pending.title || "Main note", kind: "MAIN NOTE", root: true },
+    ...mapNodes.map((node) => ({
+      id: node.id,
+      title: node.title || "Untitled node",
+      kind: node.external ? node.type : node.kind,
+      external: node.external,
+    })),
+  ];
+  items.forEach((item) => {
+    const point = positions.get(item.id);
+    const selected = pending.activeSelection?.type === "root" && item.root
+      || pending.activeSelection?.type === "node" && pending.activeSelection.id === item.id
+      || pending.activeSelection?.type === "external" && pending.activeSelection.id === item.id;
+    const group = draftSvgElement(drawing, "g", {
+      class: `draft-map-node${item.root ? " root" : ""}${item.external ? " external" : ""}${selected ? " selected" : ""}${item.root || item.external || draftNodes.find((node) => node.id === item.id)?.selected ? "" : " excluded"}`,
+      transform: `translate(${point.x} ${point.y})`,
+      "data-draft-id": item.id,
+      role: "button",
+      tabindex: "0",
+      "aria-label": `${item.root ? "Edit main note" : item.external ? "Existing note" : "Edit topic"}: ${item.title}`,
+    });
+    const color = item.external ? COLORS.bookmark : COLORS.note;
+    group.append(
+      draftSvgElement(svg, "circle", {
+        r: 14, fill: color, class: "draft-map-node-halo",
+      }),
+      draftSvgElement(svg, "circle", {
+        r: 6, fill: color, class: "draft-map-node-core",
+      }),
+    );
+    const eyebrow = draftSvgElement(svg, "text", {
+      x: 21, y: "-5", class: "draft-map-node-kind",
+    });
+    eyebrow.textContent = item.kind || "TOPIC";
+    const title = draftSvgElement(svg, "text", {
+      x: 21, y: 11, class: "draft-map-node-title",
+    });
+    title.textContent = item.title.length > 25
+      ? `${item.title.slice(0, 24)}…`
+      : item.title;
+    group.append(eyebrow, title);
+    group.addEventListener("click", () => {
+      if (group.dataset.dragged === "true") {
+        delete group.dataset.dragged;
+        return;
+      }
+      pending.activeSelection = item.root
+        ? { type: "root" }
+        : { type: item.external ? "external" : "node", id: item.id };
+      setDraftMapSelection(pending, svg, group);
+    });
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        group.click();
+      }
+    });
+    group.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || item.external) return;
+      const start = draftCanvasPoint(event, svg, pending);
+      if (!start) return;
+      group.setPointerCapture(event.pointerId);
+      group.dataset.dragged = "false";
+      group._draftDrag = { start, point, pointerId: event.pointerId };
+    });
+    group.addEventListener("pointermove", (event) => {
+      const drag = group._draftDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const current = draftCanvasPoint(event, svg, pending);
+      if (!current) return;
+      const dx = current.x - drag.start.x;
+      const dy = current.y - drag.start.y;
+      if (Math.hypot(dx, dy) < 3 && group.dataset.dragged !== "true") return;
+      group.dataset.dragged = "true";
+      const next = {
+        x: Math.max(100, Math.min(1000, drag.point.x + dx)),
+        y: Math.max(45, Math.min(575, drag.point.y + dy)),
+      };
+      positions.set(item.id, next);
+      pending.mapPositions[item.id] = next;
+      group.setAttribute("transform", `translate(${next.x} ${next.y})`);
+      updateEdges(item.id);
+    });
+    const finishDrag = () => { group._draftDrag = null; };
+    group.addEventListener("pointerup", finishDrag);
+    group.addEventListener("pointercancel", finishDrag);
+    drawing.append(group);
+  });
+  for (const edge of edgeReferences) {
+    const selected = pending.activeSelection?.type === "relationship"
+      && pending.activeSelection.relationship === edge.relationship;
+    edge.group.classList.toggle("selected", selected);
+  }
+  if (!mapNodes.length) {
+    const empty = draftSvgElement(drawing, "text", {
+      x: "550", y: "450", class: "draft-map-empty",
+    });
+    empty.textContent = "Add a topic to begin building this map";
+    drawing.append(empty);
+  }
+  applyDraftMapTransform(pending, svg);
+}
+
+function setDraftMapSelection(pending, svg, selectedElement) {
+  svg.querySelectorAll(".draft-map-node, .draft-map-relationship").forEach((element) => {
+    element.classList.remove("selected");
+  });
+  selectedElement.classList.add("selected");
+  renderDraftInspector(pending, $("#draft-map-inspector"), svg);
+}
+
+function appendDraftField(container, labelText, control) {
+  const field = document.createElement("label");
+  field.className = "draft-inspector-field";
+  if (control.type === "checkbox") field.classList.add("checkbox-field");
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  field.append(label, control);
+  container.append(field);
+}
+
+function renderDraftInspector(pending, inspector, svg) {
+  inspector.replaceChildren();
+  const selection = pending.activeSelection || { type: "root" };
+  const heading = document.createElement("div");
+  heading.className = "draft-inspector-heading";
+  const kicker = document.createElement("span");
+  kicker.textContent = selection.type === "relationship" ? "CONNECTION" :
+    selection.type === "root" ? "MAIN NOTE" : selection.type === "external" ? "SAVED NOTE" : "TOPIC";
+  const title = document.createElement("strong");
+  title.textContent = selection.type === "relationship" ? "Connection details" :
+    selection.type === "root" ? "Edit the thought" : "Edit this node";
+  heading.append(kicker, title);
+  inspector.append(heading);
+
+  const renderMap = () => renderDraftGraph(pending, svg);
+  if (selection.type === "root") {
+    const titleInput = document.createElement("input");
+    titleInput.maxLength = 120;
+    titleInput.value = pending.title;
+    titleInput.setAttribute("aria-label", "Edit main note title");
+    titleInput.addEventListener("input", () => {
+      pending.title = titleInput.value;
+      renderMap();
+    });
+    appendDraftField(inspector, "Title", titleInput);
+    const content = document.createElement("textarea");
+    content.rows = 7;
+    content.maxLength = 20000;
+    content.value = pending.content;
+    content.setAttribute("aria-label", "Edit main note content");
+    content.addEventListener("input", () => { pending.content = content.value; });
+    appendDraftField(inspector, "Note", content);
+    return;
+  }
+  if (selection.type === "external") {
+    const existing = state.graph.nodes.find((node) => node.id === selection.id);
+    const note = document.createElement("p");
+    note.className = "draft-inspector-note";
+    note.textContent = existing
+      ? `${existing.title} is already in this space. Select a connection line to edit its relationship.`
+      : "This saved note is not available in the current graph.";
+    inspector.append(note);
+    return;
+  }
+  if (selection.type === "relationship") {
+    const relationship = selection.relationship;
+    const include = document.createElement("input");
+    include.type = "checkbox";
+    include.checked = relationship.selected;
+    include.addEventListener("change", () => {
+      relationship.selected = include.checked;
+      renderMap();
+    });
+    appendDraftField(inspector, "Include this connection", include);
+    const options = [
+      { id: "root", title: pending.title || "Main note" },
+      ...pending.nodes.map((node) => ({ id: node.id, title: node.title || "Untitled node" })),
+      ...state.graph.nodes.map((node) => ({ id: node.id, title: node.title })),
+    ];
+    for (const endpoint of ["source", "target"]) {
+      const select = document.createElement("select");
+      for (const option of options) {
+        const element = document.createElement("option");
+        element.value = option.id;
+        element.textContent = option.title;
+        select.append(element);
+      }
+      select.value = relationship[endpoint];
+      select.addEventListener("change", () => {
+        relationship[endpoint] = select.value;
+        renderMap();
+      });
+      appendDraftField(inspector, endpoint === "source" ? "From" : "To", select);
+    }
+    const label = document.createElement("input");
+    label.maxLength = 120;
+    label.value = relationship.label;
+    label.placeholder = "e.g. about";
+    label.addEventListener("input", () => {
+      relationship.label = label.value;
+      renderMap();
+    });
+    appendDraftField(inspector, "Connection label", label);
+    const evidence = document.createElement("p");
+    evidence.className = "draft-inspector-note";
+    evidence.textContent = `Evidence: ${relationship.evidence || "none"} · ${relationship.confidence} confidence`;
+    inspector.append(evidence);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button secondary draft-inspector-remove";
+    remove.textContent = "Remove connection";
+    remove.addEventListener("click", () => {
+      pending.relationships = pending.relationships.filter((item) => item !== relationship);
+      pending.activeSelection = { type: "root" };
+      renderDraftPreview();
+    });
+    inspector.append(remove);
+    return;
+  }
+
+  const node = pending.nodes.find((candidate) => candidate.id === selection.id);
+  if (!node) {
+    pending.activeSelection = { type: "root" };
+    renderDraftInspector(pending, inspector, svg);
+    return;
+  }
+  const include = document.createElement("input");
+  include.type = "checkbox";
+  include.checked = node.selected;
+  include.addEventListener("change", () => {
+    node.selected = include.checked;
+    renderMap();
+  });
+  appendDraftField(inspector, "Include this node", include);
+  const titleInput = document.createElement("input");
+  titleInput.maxLength = 120;
+  titleInput.value = node.title;
+  titleInput.addEventListener("input", () => {
+    node.title = titleInput.value;
+    renderMap();
+  });
+  appendDraftField(inspector, "Name", titleInput);
+  const kind = draftNodeKindEditor(node.kind, (value) => {
+    node.kind = value;
+    renderMap();
+  });
+  appendDraftField(inspector, "Type", kind);
+  const description = document.createElement("textarea");
+  description.rows = 4;
+  description.maxLength = 800;
+  description.value = node.description;
+  description.placeholder = "Describe this idea";
+  description.addEventListener("input", () => { node.description = description.value; });
+  appendDraftField(inspector, "Description", description);
+  const evidence = document.createElement("p");
+  evidence.className = "draft-inspector-note";
+  evidence.textContent = `Evidence: ${node.evidence.join(" / ") || "add a short description"}`;
+  inspector.append(evidence);
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "button secondary draft-inspector-remove";
+  remove.textContent = "Remove node";
+  remove.addEventListener("click", () => {
+    pending.nodes = pending.nodes.filter((item) => item !== node);
+    pending.relationships = pending.relationships.filter(
+      (relationship) => relationship.source !== node.id && relationship.target !== node.id,
+    );
+    pending.activeSelection = { type: "root" };
+    renderDraftPreview();
+  });
+  inspector.append(remove);
+}
+
+function addDraftNode(pending) {
+  if (pending.nodes.length >= 20) {
+    toast("A draft can contain up to 20 new nodes");
+    return;
+  }
+  const ids = new Set(pending.nodes.map((node) => node.id));
+  let number = 1;
+  while (ids.has(`n${number}`)) number += 1;
+  const node = {
+    id: `n${number}`, title: "New topic", kind: "topic",
+    description: "", evidence: [], selected: true,
+  };
+  pending.nodes.push(node);
+  pending.activeSelection = { type: "node", id: node.id };
+  renderDraftPreview();
+}
+
+function addDraftRelationship(pending) {
+  if (pending.relationships.length >= 24) {
+    toast("A draft can contain up to 24 connections");
+    return;
+  }
+  const target = pending.nodes.find((node) => node.selected)?.id || state.graph.nodes[0]?.id;
+  if (!target) {
+    toast("Add a topic before creating a connection");
+    return;
+  }
+  const relationship = {
+    source: "root", target, label: "", evidence: "", confidence: "medium", selected: true,
+  };
+  pending.relationships.push(relationship);
+  pending.activeSelection = { type: "relationship", relationship };
+  renderDraftPreview();
 }
 
 function renderDraftPreview() {
   const pending = state.pendingCapture;
   const preview = $("#map-preview-content");
   preview.replaceChildren();
+  pending.previewView ||= "map";
+  pending.activeSelection ||= { type: "root" };
   const modelInfo = document.createElement("p");
-  modelInfo.className = "capture-hint";
+  modelInfo.className = "draft-model-info";
   modelInfo.textContent = pending.model === "inclusionai/ling-3.2-flash:free"
     ? "Generated by Ling 3.2 Flash (free)."
     : "Ling was unavailable; generated by the free NVIDIA backup.";
-  preview.append(modelInfo);
+  const tabs = document.createElement("div");
+  tabs.className = "draft-view-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Draft review mode");
+  const mapTab = document.createElement("button");
+  mapTab.type = "button";
+  mapTab.className = "draft-view-tab";
+  mapTab.textContent = "Map";
+  mapTab.setAttribute("role", "tab");
+  mapTab.setAttribute("aria-selected", String(pending.previewView === "map"));
+  const detailsTab = document.createElement("button");
+  detailsTab.type = "button";
+  detailsTab.className = "draft-view-tab";
+  detailsTab.textContent = "Details";
+  detailsTab.setAttribute("role", "tab");
+  detailsTab.setAttribute("aria-selected", String(pending.previewView === "details"));
+  mapTab.addEventListener("click", () => {
+    pending.previewView = "map";
+    renderDraftPreview();
+  });
+  detailsTab.addEventListener("click", () => {
+    pending.previewView = "details";
+    renderDraftPreview();
+  });
+  tabs.append(mapTab, detailsTab);
+  const toolbar = document.createElement("div");
+  toolbar.className = "draft-map-toolbar";
+  const mapHelp = document.createElement("span");
+  mapHelp.textContent = "Scroll to zoom · Drag canvas to pan · Drag nodes to arrange";
+  const zoomControls = document.createElement("div");
+  zoomControls.className = "draft-map-zoom-controls";
+  const zoomOut = document.createElement("button");
+  zoomOut.type = "button";
+  zoomOut.className = "button secondary";
+  zoomOut.textContent = "−";
+  zoomOut.setAttribute("aria-label", "Zoom out on preview map");
+  const zoomLevel = document.createElement("span");
+  zoomLevel.id = "draft-map-zoom-level";
+  zoomLevel.textContent = `${Math.round((pending.mapScale || 1) * 100)}%`;
+  const zoomIn = document.createElement("button");
+  zoomIn.type = "button";
+  zoomIn.className = "button secondary";
+  zoomIn.textContent = "+";
+  zoomIn.setAttribute("aria-label", "Zoom in on preview map");
+  const resetZoom = document.createElement("button");
+  resetZoom.type = "button";
+  resetZoom.className = "button secondary";
+  resetZoom.textContent = "Reset";
+  resetZoom.setAttribute("aria-label", "Reset preview map zoom and position");
+  zoomOut.addEventListener("click", () => zoomDraftMap(pending, svg, 1 / 1.2));
+  zoomIn.addEventListener("click", () => zoomDraftMap(pending, svg, 1.2));
+  resetZoom.addEventListener("click", () => {
+    pending.mapScale = 1;
+    pending.mapOffsetX = 0;
+    pending.mapOffsetY = 0;
+    applyDraftMapTransform(pending, svg);
+    zoomLevel.textContent = "100%";
+  });
+  zoomControls.append(zoomOut, zoomLevel, zoomIn, resetZoom);
+  const addMapNode = document.createElement("button");
+  addMapNode.type = "button";
+  addMapNode.className = "button secondary";
+  addMapNode.textContent = "＋ Node";
+  addMapNode.addEventListener("click", () => addDraftNode(pending));
+  const addMapLink = document.createElement("button");
+  addMapLink.type = "button";
+  addMapLink.className = "button secondary";
+  addMapLink.textContent = "＋ Connection";
+  addMapLink.disabled = !pending.nodes.length && !state.graph.nodes.length;
+  addMapLink.addEventListener("click", () => addDraftRelationship(pending));
+  toolbar.append(mapHelp, zoomControls, addMapNode, addMapLink);
+  const mapView = document.createElement("section");
+  mapView.className = "draft-map-view";
+  mapView.hidden = pending.previewView !== "map";
+  const workspace = document.createElement("div");
+  workspace.className = "draft-map-workspace";
+  const canvasWrap = document.createElement("div");
+  canvasWrap.className = "draft-map-canvas-wrap";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("draft-map-canvas");
+  svg.setAttribute("viewBox", "0 0 1100 620");
+  svg.setAttribute("role", "group");
+  svg.setAttribute("aria-label", "Editable preview of your note graph");
+  const inspector = document.createElement("aside");
+  inspector.className = "draft-map-inspector";
+  inspector.id = "draft-map-inspector";
+  canvasWrap.append(toolbar, svg);
+  workspace.append(canvasWrap, inspector);
+  mapView.append(workspace);
+  const details = document.createElement("div");
+  details.className = "draft-details-view";
+  details.hidden = pending.previewView !== "details";
+  preview.append(modelInfo, tabs, mapView, details);
+  renderDraftGraph(pending, svg);
+  setupDraftCanvas(pending, svg);
+  renderDraftInspector(pending, inspector, svg);
+
   const root = document.createElement("section");
   root.className = "map-node-preview";
   const rootLabel = document.createElement("label");
@@ -776,10 +1501,14 @@ function renderDraftPreview() {
   rootTitle.value = pending.title;
   rootTitle.setAttribute("aria-label", "Edit main note title");
   rootTitle.addEventListener("input", () => { pending.title = rootTitle.value; });
-  const rootContent = document.createElement("p");
-  rootContent.textContent = pending.content;
+  const rootContent = document.createElement("textarea");
+  rootContent.rows = 7;
+  rootContent.maxLength = 20000;
+  rootContent.value = pending.content;
+  rootContent.setAttribute("aria-label", "Edit main note content");
+  rootContent.addEventListener("input", () => { pending.content = rootContent.value; });
   root.append(rootLabel, rootTitle, rootContent);
-  preview.append(root);
+  details.append(root);
 
   if (pending.questions.length) {
     const questions = document.createElement("section");
@@ -795,7 +1524,7 @@ function renderDraftPreview() {
       list.append(question);
     }
     questions.append(heading, list);
-    preview.append(questions);
+    details.append(questions);
   }
 
   const nodeHeading = document.createElement("div");
@@ -806,22 +1535,9 @@ function renderDraftPreview() {
   addNode.type = "button";
   addNode.className = "button secondary";
   addNode.textContent = "＋ Add node";
-  addNode.addEventListener("click", () => {
-    if (pending.nodes.length >= 8) {
-      toast("A draft can contain up to 8 new nodes");
-      return;
-    }
-    const ids = new Set(pending.nodes.map((node) => node.id));
-    let number = 1;
-    while (ids.has(`n${number}`)) number += 1;
-    pending.nodes.push({
-      id: `n${number}`, title: "New topic", kind: "topic",
-      description: "", evidence: [], selected: true,
-    });
-    renderDraftPreview();
-  });
+  addNode.addEventListener("click", () => addDraftNode(pending));
   nodeHeading.append(nodeTitle, addNode);
-  preview.append(nodeHeading);
+  details.append(nodeHeading);
 
   for (const node of pending.nodes) {
     const card = document.createElement("section");
@@ -838,17 +1554,8 @@ function renderDraftPreview() {
     title.value = node.title;
     title.setAttribute("aria-label", "Edit node title");
     title.addEventListener("input", () => { node.title = title.value; });
-    const kind = document.createElement("select");
-    kind.setAttribute("aria-label", "Edit node category");
-    for (const value of DRAFT_NODE_KINDS) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value[0].toLocaleUpperCase() + value.slice(1);
-      kind.append(option);
-    }
-    kind.value = node.kind;
-    kind.addEventListener("change", () => {
-      node.kind = kind.value;
+    const kind = draftNodeKindEditor(node.kind, (value) => {
+      node.kind = value;
       evidence.textContent = `${node.kind.toLocaleUpperCase()} · Evidence: ${node.evidence.join(" / ") || "add a short description"}`;
     });
     const description = document.createElement("textarea");
@@ -868,10 +1575,14 @@ function renderDraftPreview() {
     remove.setAttribute("aria-label", `Remove ${node.title}`);
     remove.addEventListener("click", () => {
       pending.nodes = pending.nodes.filter((candidate) => candidate !== node);
+      pending.relationships = pending.relationships.filter(
+        (relationship) => relationship.source !== node.id && relationship.target !== node.id,
+      );
+      pending.activeSelection = { type: "root" };
       renderDraftPreview();
     });
     card.append(include, fields, remove);
-    preview.append(card);
+    details.append(card);
   }
 
   const relationHeading = document.createElement("div");
@@ -882,17 +1593,11 @@ function renderDraftPreview() {
   addRelation.type = "button";
   addRelation.className = "button secondary";
   addRelation.textContent = "＋ Add connection";
-  addRelation.disabled = !pending.nodes.length && !state.graph.nodes.length;
-  addRelation.addEventListener("click", () => {
-    const target = pending.nodes.find((node) => node.selected)?.id || state.graph.nodes[0]?.id;
-    if (!target) return;
-    pending.relationships.push({
-      source: "root", target, label: "", evidence: "", confidence: "medium", selected: true,
-    });
-    renderDraftPreview();
-  });
+  addRelation.disabled = pending.relationships.length >= 24
+    || !pending.nodes.length && !state.graph.nodes.length;
+  addRelation.addEventListener("click", () => addDraftRelationship(pending));
   relationHeading.append(relationTitle, addRelation);
-  preview.append(relationHeading);
+  details.append(relationHeading);
 
   const endpointOptions = [
     { id: "root", title: pending.title || "Main note" },
@@ -938,17 +1643,18 @@ function renderDraftPreview() {
     remove.setAttribute("aria-label", "Remove connection");
     remove.addEventListener("click", () => {
       pending.relationships = pending.relationships.filter((candidate) => candidate !== relationship);
+      pending.activeSelection = { type: "root" };
       renderDraftPreview();
     });
     card.append(include, fields, remove);
-    preview.append(card);
+    details.append(card);
   }
 
   if (!pending.nodes.length && !pending.relationships.length) {
     const empty = document.createElement("p");
     empty.className = "map-link-preview unmatched";
     empty.textContent = "No separate topics or clear connections were found. You can still save the main note.";
-    preview.append(empty);
+    details.append(empty);
   }
 }
 
@@ -956,21 +1662,40 @@ async function saveCapture() {
   const pending = state.pendingCapture;
   if (!pending) return;
   const button = $("#save-capture"); button.disabled = true;
+  $("#map-message").textContent = "";
   let saved = null;
   let topicCount = 0;
   let connectionCount = 0;
+  let skippedTopicCount = 0;
+  let skippedConnectionCount = 0;
+  const saveableNodes = [];
+  for (const node of pending.nodes.filter((candidate) => candidate.selected)) {
+    const title = node.title.trim();
+    const description = node.description.trim();
+    const kind = node.kind.trim();
+    if (!title || !description || !kind || title.toLocaleLowerCase() === "new topic") {
+      skippedTopicCount += 1;
+      continue;
+    }
+    saveableNodes.push({ ...node, title, description, kind });
+  }
   try {
-    saved = await request("/items", { method: "POST", body: JSON.stringify({
-      type: pending.source ? "bookmark" : "note",
-      title: pending.title.trim(),
+    const noteType = pending.source ? "bookmark" : "note";
+    const noteTitle = pending.title.trim();
+    const noteExcerpt = pending.content.slice(0, 180);
+    saved = state.graph.nodes.find(
+      (node) => node.type === noteType
+        && node.title.toLocaleLowerCase() === noteTitle.toLocaleLowerCase()
+        && node.excerpt === noteExcerpt,
+    ) || await request("/items", { method: "POST", body: JSON.stringify({
+      type: noteType,
+      title: noteTitle,
       content: pending.content,
       source_uri: pending.source || null,
     }) });
     const savedByDraftId = new Map([["root", saved]]);
-    for (const node of pending.nodes.filter((candidate) => candidate.selected)) {
-      const title = node.title.trim();
-      const description = node.description.trim();
-      if (!title || !description) throw new Error("Every selected topic needs a title and description.");
+    for (const node of saveableNodes) {
+      const { title, description } = node;
       if (title.toLocaleLowerCase() === saved.title.toLocaleLowerCase()) {
         savedByDraftId.set(node.id, saved);
         continue;
@@ -995,7 +1720,10 @@ async function saveCapture() {
         || state.graph.nodes.find((node) => node.id === relationship.source);
       const target = savedByDraftId.get(relationship.target)
         || state.graph.nodes.find((node) => node.id === relationship.target);
-      if (!source || !target || source.id === target.id) continue;
+      if (!source || !target || source.id === target.id) {
+        skippedConnectionCount += 1;
+        continue;
+      }
       const label = relationship.label.trim();
       const query = label ? `?label=${encodeURIComponent(label)}` : "";
       await request(`/items/${source.id}/links/${target.id}${query}`, { method: "POST" });
@@ -1010,12 +1738,19 @@ async function saveCapture() {
         title: saved.title,
         type: saved.type,
         captured_at: saved.captured_at,
-        excerpt: saved.content.slice(0, 180),
+        excerpt: noteExcerpt,
       },
       ...state.graph.nodes.filter((node) => node.id !== saved.id),
     ].slice(0, 200);
     renderGraph(state.graph);
-    toast(`Saved${topicCount ? ` ${topicCount} topic${topicCount === 1 ? "" : "s"}` : ""}${connectionCount ? ` and ${connectionCount} connection${connectionCount === 1 ? "" : "s"}` : ""}`);
+    const summary = [
+      `Saved${topicCount ? ` ${topicCount} topic${topicCount === 1 ? "" : "s"}` : ""}${connectionCount ? ` and ${connectionCount} connection${connectionCount === 1 ? "" : "s"}` : ""}`,
+      skippedTopicCount ? `skipped ${skippedTopicCount} incomplete topic${skippedTopicCount === 1 ? "" : "s"}` : "",
+      skippedConnectionCount
+        ? `skipped ${skippedConnectionCount} connection${skippedConnectionCount === 1 ? "" : "s"} with unsaved endpoints`
+        : "",
+    ].filter(Boolean);
+    toast(summary.join("; "));
     await loadGraph();
     state.pendingCapture = null;
   } catch (error) {
@@ -1031,10 +1766,16 @@ $("#preview-capture").addEventListener("click", renderCapturePreview);
 $("#capture-form").addEventListener("submit", (event) => event.preventDefault());
 $("#save-capture").addEventListener("click", saveCapture);
 $("#edit-capture").addEventListener("click", () => {
+  if (state.pendingCapture) {
+    $("#capture-content").value = state.pendingCapture.content;
+    $("#capture-source").value = state.pendingCapture.source;
+    updateCaptureWordCount();
+  }
   $("#map-preview-dialog").close();
   $("#capture-dialog").showModal();
   $("#capture-content").focus();
 });
+$("#capture-content").addEventListener("input", updateCaptureWordCount);
 
 $("#link-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1187,106 +1928,80 @@ $("#decision-edit-form").addEventListener("submit", async (event) => {
 
 async function loadSpaces() {
   const spaces = await request("/spaces");
-  if (!spaces.length) throw new Error("No spaces are available.");
   state.spaces = spaces;
+  if (!spaces.length) {
+    state.spaceId = null;
+    localStorage.removeItem("mnemosyne-space-id");
+    $("#current-space-name").textContent = "Choose a space";
+    renderSpacesHome();
+    return;
+  }
   if (!spaces.some((space) => space.id === state.spaceId)) {
     const personal = spaces.find((space) => space.id === DEFAULT_SPACE_ID) || spaces[0];
     state.spaceId = personal.id;
     localStorage.setItem("mnemosyne-space-id", state.spaceId);
   }
   const active = spaces.find((space) => space.id === state.spaceId);
-  $("#current-space-name").textContent = active.name;
-  renderSpaceGalaxy($("#space-search").value);
+  $("#current-space-name").textContent = active?.name || "Choose a space";
+  renderSpacesHome();
 }
 
-function renderSpaceInsight(space) {
-  const insight = $("#space-galaxy-insight");
-  if (!space) {
-    insight.replaceChildren();
-    return;
-  }
-  const title = document.createElement("strong");
-  title.textContent = space.name;
-  const count = document.createElement("span");
-  const itemCount = space.item_count || 0;
-  count.textContent = `${itemCount} ${itemCount === 1 ? "memory" : "memories"}`;
-  const activity = document.createElement("small");
-  activity.textContent = space.last_activity
-    ? `LAST SIGNAL · ${shortDate(space.last_activity)}`
-    : `FORMED · ${niceDate(space.created_at)}`;
-  insight.replaceChildren(title, count, activity);
-}
-
-function renderSpaceGalaxy(query = "") {
-  const field = $("#space-galaxy-nuclei");
-  if (!field) return;
-  field.replaceChildren();
+function renderSpacesHome(query = "") {
+  const cards = $("#space-cards");
+  if (!cards) return;
+  cards.replaceChildren();
   const search = query.trim().toLocaleLowerCase();
-  const matches = state.spaces.filter((space) => space.name.toLocaleLowerCase().includes(search));
-  const focusSpace = matches.find((space) => space.id === state.spaceId) || matches[0];
-  const satellites = matches.filter((space) => space.id !== focusSpace?.id);
-  const radiusX = satellites.length === 1 ? 30 : Math.min(42, 17 + satellites.length * 2.8);
-  const radiusY = Math.min(35, 15 + satellites.length * 2.2);
-  const palette = ["#8ee4ac", "#c3a6ff", "#83d9e8", "#f0d47a", "#f39b87"];
-  matches.forEach((space, index) => {
-    const nucleus = document.createElement("button");
-    nucleus.type = "button";
-    const isFocus = space.id === focusSpace?.id;
-    nucleus.className = `space-nucleus${isFocus ? " focused" : ""}`;
-    nucleus.setAttribute("aria-current", space.id === state.spaceId ? "true" : "false");
-    nucleus.setAttribute("aria-label", `${space.name}, ${space.item_count || 0} memories${space.id === state.spaceId ? ", current space" : ""}`);
-    const satelliteIndex = satellites.findIndex((entry) => entry.id === space.id);
-    const angle = satellites.length === 1
-      ? Math.PI
-      : (satelliteIndex / Math.max(satellites.length, 1)) * Math.PI * 2 - Math.PI / 2;
-    const x = isFocus ? 50 : 50 + Math.cos(angle) * radiusX;
-    const y = isFocus ? 50 : 50 + Math.sin(angle) * radiusY;
-    nucleus.style.setProperty("--space-x", `${x}%`);
-    nucleus.style.setProperty("--space-y", `${y}%`);
-    nucleus.style.setProperty("--space-color", palette[index % palette.length]);
+  const matches = state.spaces
+    .filter((space) => space.name.toLocaleLowerCase().includes(search))
+    .sort((left, right) =>
+      Number(right.id === state.spaceId) - Number(left.id === state.spaceId)
+      || left.name.localeCompare(right.name));
 
-    const core = document.createElement("span");
-    core.className = "space-nucleus-core";
-    core.setAttribute("aria-hidden", "true");
-    core.append(document.createElement("i"), document.createElement("b"));
-    const label = document.createElement("span");
-    label.className = "space-nucleus-label";
-    label.textContent = space.name;
-    const marker = document.createElement("small");
-    marker.textContent = space.id === state.spaceId ? "CURRENT" : `${space.item_count || 0} MEMORIES`;
-    nucleus.append(core, label, marker);
-    nucleus.addEventListener("mouseenter", () => renderSpaceInsight(space));
-    nucleus.addEventListener("focus", () => renderSpaceInsight(space));
-    nucleus.addEventListener("click", () => zoomToSpace(space.id, nucleus));
-    field.append(nucleus);
-  });
-  $("#space-search-empty").classList.toggle("hidden", matches.length > 0);
-  $("#space-galaxy-stage").classList.toggle("searching", Boolean(search));
-  renderSpaceInsight(focusSpace);
-}
+  for (const space of matches) {
+    const isLastOpened = space.id === state.spaceId;
+    const card = document.createElement("article");
+    card.className = `space-card${isLastOpened ? " last-opened" : ""}`;
+    card.setAttribute("aria-current", String(isLastOpened));
+    const top = document.createElement("div");
+    top.className = "space-card-top";
+    const marker = document.createElement("span");
+    marker.textContent = isLastOpened ? "LAST OPENED" : "SPACE";
+    const icon = document.createElement("span");
+    icon.className = "space-card-mark";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "M";
+    top.append(marker, icon);
+    const title = document.createElement("h2");
+    title.textContent = space.name;
+    const count = space.item_count || 0;
+    const meta = document.createElement("p");
+    meta.className = "space-card-meta";
+    meta.textContent = `${count} ${count === 1 ? "memory" : "memories"}`;
+    const activity = document.createElement("p");
+    activity.className = "space-card-activity";
+    activity.textContent = space.last_activity
+      ? `Updated ${shortDate(space.last_activity)}`
+      : "Ready for your first thought";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = `button ${isLastOpened ? "primary" : "secondary"} space-card-open`;
+    open.textContent = isLastOpened ? "Continue" : "Open space";
+    open.addEventListener("click", () => selectSpace(space.id));
+    card.append(top, title, meta, activity, open);
+    cards.append(card);
+  }
 
-function openSpacePicker() {
-  if (state.spaceTransitionTimer) window.clearTimeout(state.spaceTransitionTimer);
-  state.spaceTransitionTimer = null;
-  $("#space-galaxy-stage").classList.remove("zooming");
-  $("#space-search").value = "";
-  renderSpaceGalaxy();
-  $("#space-picker-dialog").showModal();
-  document.body.classList.add("space-dialog-open");
-  $("#space-search").focus();
-}
-
-function zoomToSpace(spaceId, nucleus) {
-  const stage = $("#space-galaxy-stage");
-  if (stage.classList.contains("zooming")) return;
-  stage.classList.add("zooming");
-  nucleus.classList.add("zoom-target");
-  const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 680;
-  state.spaceTransitionTimer = window.setTimeout(() => {
-    state.spaceTransitionTimer = null;
-    stage.classList.remove("zooming");
-    selectSpace(spaceId);
-  }, duration);
+  $("#spaces-count").textContent = `${state.spaces.length} ${state.spaces.length === 1 ? "space" : "spaces"}`;
+  const empty = $("#spaces-empty");
+  if (!state.spaces.length) {
+    empty.textContent = "No spaces yet. Create one to start organizing your notes.";
+    empty.classList.remove("hidden");
+  } else if (!matches.length) {
+    empty.textContent = `No spaces match “${query.trim()}”. Try another name.`;
+    empty.classList.remove("hidden");
+  } else {
+    empty.classList.add("hidden");
+  }
 }
 
 function selectSpace(spaceId) {
@@ -1294,17 +2009,16 @@ function selectSpace(spaceId) {
   localStorage.setItem("mnemosyne-space-id", spaceId);
   const active = state.spaces.find((space) => space.id === spaceId);
   if (active) $("#current-space-name").textContent = active.name;
-  if ($("#space-picker-dialog").open) $("#space-picker-dialog").close();
   $("#close-detail").click();
-  showView(state.view);
+  showView("graph");
 }
 
 function openSpaceDialog(space = null) {
   state.editingSpaceId = space?.id || null;
   $("#space-name").value = space?.name || "";
   $("#space-dialog").querySelector("h2").textContent =
-    space ? "Manage this space" : "Create a space";
-  $("#save-space").textContent = space ? "Save space" : "Create space";
+    space ? "Space settings" : "Create a space";
+  $("#save-space").textContent = space ? "Save changes" : "Create space";
   $("#delete-space").classList.toggle("hidden", !space || space.id === DEFAULT_SPACE_ID);
   $("#delete-space").disabled = false;
   $("#space-form-message").textContent = "";
@@ -1316,10 +2030,11 @@ $("#space-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = $("#save-space");
   button.disabled = true;
+  const editingSpaceId = state.editingSpaceId;
   try {
     const name = $("#space-name").value.trim();
-    const space = state.editingSpaceId
-      ? await request(`/spaces/${state.editingSpaceId}`, {
+    const space = editingSpaceId
+      ? await request(`/spaces/${editingSpaceId}`, {
         method: "PATCH",
         body: JSON.stringify({ name }),
       })
@@ -1330,8 +2045,8 @@ $("#space-form").addEventListener("submit", async (event) => {
     localStorage.setItem("mnemosyne-space-id", space.id);
     $("#current-space-name").textContent = space.name;
     $("#close-detail").click();
-    showView(state.view);
-    toast(state.editingSpaceId ? "Space updated" : "Space created");
+    showView(editingSpaceId ? state.view : "graph");
+    toast(editingSpaceId ? "Space updated" : "Space created");
   } catch (error) {
     $("#space-form-message").textContent = error.message;
     toast(error.message);
@@ -1350,31 +2065,28 @@ $("#delete-space").addEventListener("click", async () => {
     await request(`/spaces/${spaceId}`, { method: "DELETE" });
     $("#space-dialog").close();
     state.spaceId = null;
+    localStorage.removeItem("mnemosyne-space-id");
     await loadSpaces();
-    localStorage.setItem("mnemosyne-space-id", state.spaceId);
     $("#close-detail").click();
-    showView(state.view);
+    showView("spaces");
     toast("Space deleted");
   } catch (error) {
     toast(error.message);
   }
 });
 
-$("#space-picker-button").addEventListener("click", openSpacePicker);
-$("#space-search").addEventListener("input", (event) => renderSpaceGalaxy(event.currentTarget.value));
-$("#space-picker-dialog").addEventListener("close", () => {
-  if (state.spaceTransitionTimer) window.clearTimeout(state.spaceTransitionTimer);
-  state.spaceTransitionTimer = null;
-  document.body.classList.remove("space-dialog-open");
-  $("#space-galaxy-stage").classList.remove("zooming");
+$("#brand-home").addEventListener("click", (event) => {
+  event.preventDefault();
+  showView("spaces");
 });
-$("#space-picker-create").addEventListener("click", () => {
-  $("#space-picker-dialog").close();
-  openSpaceDialog();
+$("#space-picker-button").addEventListener("click", () => showView("spaces"));
+$("#spaces-home-search").addEventListener("input", (event) => {
+  renderSpacesHome(event.currentTarget.value);
 });
 $("#new-space").addEventListener("click", () => openSpaceDialog());
 $("#manage-space").addEventListener("click", () => {
-  openSpaceDialog(state.spaces.find((space) => space.id === state.spaceId));
+  const active = state.spaces.find((space) => space.id === state.spaceId);
+  if (active) openSpaceDialog(active);
 });
 $("#space-dialog").addEventListener("close", () => $("#space-form-message").textContent = "");
 $("#cancel-link-mode").addEventListener("click", cancelLinkMode);
@@ -1386,8 +2098,8 @@ $$("[data-confirm-cancel]").forEach((button) => {
 $("#confirm-dialog").addEventListener("close", () => {
   if (state.confirmResolver) finishConfirmation(false);
 });
-$("#map-preview-dialog").addEventListener("close", () => {
-  if (state.pendingCapture) state.pendingCapture = null;
+$("#map-preview-dialog").addEventListener("cancel", () => {
+  state.pendingCapture = null;
 });
 
 $("#upload-document").addEventListener("click", () => $("#document-file").click());
@@ -1506,6 +2218,7 @@ $("#search-form").addEventListener("submit", (event) => {
 $("#open-capture").addEventListener("click", openCapture);
 $("#graph-add").addEventListener("click", openCapture);
 $("#empty-add").addEventListener("click", openCapture);
+$("#empty-upload").addEventListener("click", () => $("#document-file").click());
 $("#new-decision").addEventListener("click", () => $("#decision-dialog").showModal());
 $("#close-document-viewer").addEventListener("click", () => $("#document-viewer-dialog").close());
 $("#document-viewer-dialog").addEventListener("close", () => {
@@ -1513,7 +2226,11 @@ $("#document-viewer-dialog").addEventListener("close", () => {
   state.documentPreview = null;
 });
 $$("[data-close-dialog]").forEach((button) => {
-  button.addEventListener("click", () => button.closest("dialog").close());
+  button.addEventListener("click", () => {
+    const dialog = button.closest("dialog");
+    if (dialog.id === "map-preview-dialog") state.pendingCapture = null;
+    dialog.close();
+  });
 });
 $("#refresh-button").addEventListener("click", () => showView(state.view));
 $("#close-detail").addEventListener("click", () => {
@@ -1532,8 +2249,8 @@ $("#api-key-button").addEventListener("click", () => {
   }
 });
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
-$("#zoom-in").addEventListener("click", () => { state.scale = Math.min(1.7, state.scale + .15); renderGraph(state.graph); });
-$("#zoom-out").addEventListener("click", () => { state.scale = Math.max(.55, state.scale - .15); renderGraph(state.graph); });
+$("#zoom-in").addEventListener("click", () => zoomMainGraph(1.2));
+$("#zoom-out").addEventListener("click", () => zoomMainGraph(1 / 1.2));
 $("#center-graph").addEventListener("click", () => {
   state.scale = 1; state.offsetX = 0; state.offsetY = 0; renderGraph(state.graph);
 });
@@ -1544,6 +2261,11 @@ $("#graph-filter").addEventListener("click", () => {
 });
 const graphSvg = $("#graph-canvas");
 let drag = null;
+graphSvg.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const anchor = eventPointInSvg(event, graphSvg);
+  if (anchor) zoomMainGraph(Math.exp(-event.deltaY * .001), anchor.x, anchor.y);
+}, { passive: false });
 graphSvg.addEventListener("pointerdown", (event) => {
   if (event.target.closest(".graph-node, .graph-edge-hit")) return;
   drag = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY };
@@ -1553,8 +2275,8 @@ graphSvg.addEventListener("pointerdown", (event) => {
 graphSvg.addEventListener("pointermove", (event) => {
   if (!drag) return;
   const bounds = graphSvg.getBoundingClientRect();
-  state.offsetX = drag.ox + (event.clientX - drag.x) * (1100 / bounds.width);
-  state.offsetY = drag.oy + (event.clientY - drag.y) * (680 / bounds.height);
+  state.offsetX = drag.ox + (event.clientX - drag.x) * (1100 / bounds.width) / state.scale;
+  state.offsetY = drag.oy + (event.clientY - drag.y) * (680 / bounds.height) / state.scale;
   const drawing = graphSvg.querySelector(".graph-drawing");
   if (drawing) drawing.setAttribute(
     "transform",
@@ -1570,7 +2292,7 @@ document.addEventListener("keydown", (event) => {
 async function initializeWorkspace() {
   try {
     await loadSpaces();
-    showView("graph");
+    showView("spaces");
   } catch (error) {
     setSync(false, "Not connected");
     toast(error.message);

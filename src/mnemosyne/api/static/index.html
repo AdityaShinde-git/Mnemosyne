@@ -5,15 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111210">
     <title>Mnemosyne — your second brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=7">
+    <link rel="stylesheet" href="/static/styles.css?v=15">
   </head>
   <body>
-    <div class="app-shell">
+    <div class="app-shell spaces-home-mode" id="app-shell">
       <aside class="sidebar">
-        <a class="brand" href="/" aria-label="Mnemosyne home">
+        <a class="brand" id="brand-home" href="/" aria-label="Mnemosyne spaces home">
           <span class="brand-mark">M<span>.</span></span>
           <span class="brand-copy"><strong>mnemosyne</strong><small>PERSONAL KNOWLEDGE</small></span>
         </a>
+        <div class="space-context">
+          <button class="space-switcher" id="space-picker-button" type="button" aria-label="Switch space">
+            <span class="space-switcher-mark" aria-hidden="true">⌘</span>
+            <span class="space-switcher-copy"><small>SPACE</small><strong id="current-space-name">Choose a space</strong></span>
+            <span class="space-switcher-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <button class="icon-button space-settings-button" id="manage-space" type="button" aria-label="Space settings" title="Space settings">⚙</button>
+        </div>
         <button class="capture-button" id="open-capture"><span>＋</span> Capture a thought <kbd>⌘ K</kbd></button>
         <div class="nav-label">WORKSPACE</div>
         <nav class="navigation" aria-label="Workspace">
@@ -31,14 +39,32 @@
       </aside>
 
       <main class="main-area">
+        <section class="view-panel spaces-home-view" id="spaces-view" aria-labelledby="spaces-home-title">
+          <div class="spaces-home-content">
+            <header class="spaces-home-heading">
+              <div>
+                <p class="eyebrow">YOUR WORKSPACE</p>
+                <h1 id="spaces-home-title">Choose a space<span class="heading-dot">.</span></h1>
+                <p class="subheading">Keep different parts of your work separate, then follow the connections within each one.</p>
+              </div>
+              <button class="button primary" id="new-space" type="button">＋ New space</button>
+            </header>
+            <div class="spaces-home-toolbar">
+              <div><strong id="spaces-summary">Your spaces</strong><span id="spaces-count"></span></div>
+              <label class="spaces-search"><span aria-hidden="true">⌕</span><input id="spaces-home-search" type="search" aria-label="Find a space" placeholder="Find a space" autocomplete="off"></label>
+            </div>
+            <div class="space-card-grid" id="space-cards"></div>
+            <div class="spaces-empty hidden" id="spaces-empty" role="status"></div>
+          </div>
+        </section>
         <header class="topbar">
-          <div class="breadcrumbs"><span>Workspace</span><i>/</i><strong id="view-label">Graph</strong></div>
+          <div class="breadcrumbs"><span id="breadcrumb-space">Workspace</span><i>/</i><strong id="view-label">Graph</strong></div>
           <div class="topbar-actions"><span class="sync-state" id="sync-state"><span></span>Connecting</span><button class="icon-button" id="refresh-button" aria-label="Refresh">↻</button><button class="avatar small-avatar">M</button></div>
         </header>
         <section class="view-panel" id="graph-view">
           <div class="view-heading">
             <div><p class="eyebrow">YOUR KNOWLEDGE, CONNECTED</p><h1>Memory graph<span class="heading-dot">.</span></h1><p class="subheading">A living map of the things you’ve learned, noticed, and decided.</p></div>
-            <div class="heading-actions"><button class="space-picker-trigger" id="space-picker-button" type="button" aria-haspopup="dialog" aria-controls="space-picker-dialog"><span class="space-picker-icon" aria-hidden="true">⌘</span><span id="current-space-name">Personal</span><span class="space-picker-chevron" aria-hidden="true">⌄</span></button><button class="button secondary" id="new-space">＋ Space</button><button class="button secondary" id="manage-space">Manage</button><button class="button secondary" id="graph-filter">All nodes <span>⌄</span></button><button class="button secondary" id="upload-document">↑ Add document</button><input id="document-file" type="file" accept=".md,.markdown,.txt,.pdf"><button class="button primary" id="graph-add">＋ Open notepad</button></div>
+            <div class="heading-actions"><button class="button secondary" id="graph-filter">All nodes <span>⌄</span></button><button class="button secondary" id="upload-document">↑ Add document</button><input id="document-file" type="file" accept=".md,.markdown,.txt,.pdf"><button class="button primary" id="graph-add">＋ Capture a thought</button></div>
           </div>
           <div class="graph-toolbar">
             <div class="graph-legend"><span><i class="legend-dot green"></i> Notes</span><span><i class="legend-dot yellow"></i> Documents</span><span><i class="legend-dot violet"></i> Decisions</span></div>
@@ -46,8 +72,8 @@
           </div>
           <div class="graph-stage" id="graph-stage">
             <svg id="graph-canvas" viewBox="0 0 1100 680" role="img" aria-label="Interactive graph of your notes"></svg>
-            <div class="graph-empty" id="graph-empty"><div class="empty-orbit"><span></span><i></i><b></b></div><h2>Your graph starts with a thought</h2><p>Capture a note or import a file. Connections will appear as your knowledge grows.</p><button class="button primary" id="empty-add">＋ Capture your first note</button></div>
-            <div class="graph-tip"><span class="tip-key">DRAG</span> canvas to pan · <span class="tip-key">DRAG</span> a node to move · <span class="tip-key">CLICK</span> a node or line to manage it</div>
+            <div class="graph-empty" id="graph-empty"><p class="eyebrow">A FRESH SPACE</p><h2>Start with a thought</h2><p>Capture a note or add a document. Connections will appear as your space grows.</p><div class="graph-empty-actions"><button class="button primary" id="empty-add">＋ Capture a thought</button><button class="button secondary" id="empty-upload">↑ Add a document</button></div></div>
+            <div class="graph-tip"><span class="tip-key">SCROLL</span> to zoom · <span class="tip-key">DRAG</span> canvas to pan · <span class="tip-key">DRAG</span> a node to move · <span class="tip-key">CLICK</span> a node or line to manage it</div>
             <div class="link-mode-banner hidden" id="link-mode-banner"><span>Choose a target node on the graph</span><button class="button secondary" id="cancel-link-mode" type="button">Cancel connection</button></div>
           </div>
         </section>
@@ -81,13 +107,16 @@
       </aside>
     </div>
 
-    <dialog id="capture-dialog" class="modal">
-      <form method="dialog" id="capture-form">
-        <div class="modal-heading"><div><p class="eyebrow">YOUR NOTEPAD</p><h2>Write it out<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
-        <label for="capture-content">Write it in your own words</label><textarea id="capture-content" required maxlength="20000" rows="10" placeholder="A rough paragraph is fine. Describe what happened, what relates, or what you are trying to understand."></textarea>
-        <label for="capture-source">Source link <span class="optional">optional</span></label><input id="capture-source" maxlength="2048" placeholder="https://…">
-        <p class="capture-hint">A free OpenRouter model will turn this paragraph into an editable draft. Ling is tried first; the free NVIDIA model is used only if Ling is rate-limited. Paid fallbacks are disabled. Your text is sent to OpenRouter for interpretation; nothing is saved until you review and approve the map.</p>
-        <div class="modal-actions"><span class="form-message" id="capture-message"></span><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="preview-capture" type="button">Preview map <span>↗</span></button></div>
+    <dialog id="capture-dialog" class="modal capture-modal">
+      <form method="dialog" id="capture-form" class="capture-form">
+        <div class="modal-heading"><div><p class="eyebrow">YOUR NOTEPAD · PRIVATE BY DEFAULT</p><h2>A thought, in your words<span class="heading-dot">.</span></h2><p class="capture-subtitle">Write freely. Clarity can come later.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <div class="note-paper">
+          <div class="note-paper-top"><label for="capture-content">UNTITLED NOTE</label><span id="capture-word-count">0 words</span></div>
+          <textarea id="capture-content" class="note-editor" aria-label="Note content" required maxlength="20000" placeholder="Start with the thought you want to remember…"></textarea>
+        </div>
+        <div class="capture-source-row"><label for="capture-source">Source link <span class="optional">optional</span></label><input id="capture-source" maxlength="2048" placeholder="https://…"></div>
+        <p class="capture-hint">Preview creates an editable map. A free OpenRouter model interprets your note; NVIDIA is tried only if Ling is rate-limited, and paid fallbacks are disabled. Nothing is saved until you approve the map.</p>
+        <div class="modal-actions"><span class="form-message" id="capture-message"></span><button class="button secondary" type="button" data-close-dialog>Close</button><button class="button primary" id="preview-capture" type="button">Shape into a map <span>↗</span></button></div>
       </form>
     </dialog>
 
@@ -101,27 +130,11 @@
         </form>
       </dialog>
 
-    <dialog id="map-preview-dialog" class="modal">
-      <div class="modal-form">
+    <dialog id="map-preview-dialog" class="modal map-preview-dialog">
+      <div class="modal-form map-preview-form">
         <div class="modal-heading"><div><p class="eyebrow">REVIEW YOUR MAP</p><h2>One thought, clearly linked<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
         <div id="map-preview-content" class="map-preview"></div>
         <div class="modal-actions"><span class="form-message" id="map-message"></span><button class="button secondary" id="edit-capture" type="button">Back to notepad</button><button class="button primary" id="save-capture" type="button">Add to graph <span>↗</span></button></div>
-      </div>
-    </dialog>
-
-    <dialog id="space-picker-dialog" class="space-galaxy-dialog">
-      <div class="galaxy-shell">
-        <header class="galaxy-header">
-          <div><p class="eyebrow">YOUR KNOWLEDGE UNIVERSES</p><h2>Choose a space<span class="heading-dot">.</span></h2><p>Each nucleus opens its own living graph.</p></div>
-          <div class="galaxy-controls"><label class="visually-hidden" for="space-search">Search spaces</label><input id="space-search" type="search" placeholder="Search spaces…" autocomplete="off"><button class="icon-button" type="button" data-close-dialog aria-label="Close space selector">×</button></div>
-        </header>
-        <section class="space-galaxy-stage" id="space-galaxy-stage" aria-label="Space galaxy">
-          <div class="galaxy-nebula" aria-hidden="true"></div>
-          <div class="space-galaxy-nuclei" id="space-galaxy-nuclei"></div>
-          <aside class="galaxy-insight" id="space-galaxy-insight" aria-live="polite"></aside>
-          <p class="capture-hint hidden" id="space-search-empty">No spaces match that search.</p>
-        </section>
-        <footer class="galaxy-footer"><span>Hover or focus a nucleus to explore · Select one to enter</span><button class="button primary" id="space-picker-create" type="button">＋ Create a space</button></footer>
       </div>
     </dialog>
 
@@ -207,6 +220,6 @@
       </form>
     </dialog>
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=14" defer></script>
+    <script src="/static/app.js?v=26" defer></script>
   </body>
 </html>

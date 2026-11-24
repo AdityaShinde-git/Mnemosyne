@@ -152,24 +152,24 @@ class GraphDraftRequest(BaseModel):
 
 
 class DraftNode(BaseModel):
-    id: str = Field(pattern=r"^n[1-8]$")
+    id: str = Field(pattern=r"^n([1-9]|1[0-9]|20)$")
     title: str = Field(min_length=1, max_length=120)
-    kind: Literal["topic", "project", "person", "organization", "place", "event", "tool", "other"]
+    kind: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=800)
     evidence: list[str] = Field(min_length=1, max_length=3)
 
     _validate_title = field_validator("title")(_require_text)
+    _validate_kind = field_validator("kind")(_require_text)
     _validate_description = field_validator("description")(_require_text)
 
 
 class DraftRelationship(BaseModel):
     source: str = Field(min_length=1, max_length=64)
     target: str = Field(min_length=1, max_length=64)
-    label: str = Field(min_length=1, max_length=120)
+    label: str = Field(max_length=120)
     evidence: str = Field(min_length=1, max_length=240)
     confidence: Literal["high", "medium", "low"]
 
-    _validate_label = field_validator("label")(_require_text)
     _validate_evidence = field_validator("evidence")(_require_text)
 
 
@@ -182,8 +182,8 @@ class DraftQuestion(BaseModel):
 
 class GraphDraftResponse(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    nodes: list[DraftNode] = Field(max_length=5)
-    relationships: list[DraftRelationship] = Field(max_length=8)
+    nodes: list[DraftNode] = Field(max_length=20)
+    relationships: list[DraftRelationship] = Field(max_length=24)
     questions: list[DraftQuestion] = Field(max_length=5)
 
     _validate_title = field_validator("title")(_require_text)

@@ -108,9 +108,9 @@ Set a long random `API_KEY` in `.env` to require `X-API-Key` on `/api/*`; the UI
 
 URL ingestion accepts only HTTP(S), rejects non-public DNS addresses and redirects, and enforces a response-size limit. The default hash embedder makes no outbound network requests. Ollama requests go only to the configured local endpoint.
 
-Choose a space from the neural-galaxy selector above the graph. Each nucleus shows its memory
-count and latest activity; search focuses matching spaces, and selecting one zooms into its graph.
-Each space has its own nodes, decisions, documents, and connections.
+The app opens to **Choose a space** each time. The last-opened space is marked **Continue**;
+search or select another card to enter a space. Inside one, use the sidebar switcher to return to
+the list. Each space has its own nodes, decisions, documents, and connections.
 
 Use **Open notepad** to write freely, then choose **Preview map**. Mnemosyne sends the paragraph
 and titles of up to 100 nodes in the current space to OpenRouter's
@@ -123,6 +123,20 @@ model can still misunderstand text: review and edit the main title, topics, evid
 connections, and resolve or ignore clarification questions. Nothing is written to the graph until
 you select **Add to graph**. Do not send sensitive notes if you are not comfortable with the
 OpenRouter/provider data handling.
+
+The interpreter is designed to work with informal, fragmented, or self-correcting wording and can
+draft up to 20 new nodes and 24 direct connections. It follows explicitly stated group sizes and
+connection labels. When explicitly asked for a counted brainstorm from broad categories, it
+proposes representative examples as individual nodes; for factual notes, it does not invent
+missing group members. Review proposed examples before adding them to the graph.
+The preview opens as an interactive graph: select a node or connection to edit it in the inspector,
+edit node types as free text with suggestions and recently used labels, drag nodes to arrange the
+map, or switch to **Details** for the complete form-based editor. Nodes appear as dots with their
+labels beside them. Draft connections are unlabeled by default; add a name in the inspector if you
+want one. Incomplete selected draft nodes and their connections are skipped during saving; the
+remaining valid map is saved and the skipped items are reported. Scroll to zoom and drag empty canvas
+space to pan in both the preview and main graph. The notepad keeps the source text editable while
+you move between writing and preview.
 
 To connect nodes, select one, choose **Connect to node**, and click the target directly on the
 graph. You can optionally name the connection. Click a saved connection line to rename or
