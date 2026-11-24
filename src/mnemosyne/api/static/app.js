@@ -1668,6 +1668,8 @@ async function saveCapture() {
   let connectionCount = 0;
   let skippedTopicCount = 0;
   let skippedConnectionCount = 0;
+  const failedTopics = [];
+  const failedConnections = [];
   const saveableNodes = [];
   for (const node of pending.nodes.filter((candidate) => candidate.selected)) {
     const title = node.title.trim();
@@ -1703,17 +1705,27 @@ async function saveCapture() {
       const existing = state.graph.nodes.find(
         (candidate) => candidate.title.toLocaleLowerCase() === title.toLocaleLowerCase(),
       );
-      const topic = existing || await request("/items", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "note",
-          title,
-          content: `${description}\n\nEvidence: ${node.evidence.join(" / ")}\n\nCaptured from: ${saved.title}`,
-          metadata: { draft_kind: node.kind, evidence: node.evidence },
-        }),
-      });
-      savedByDraftId.set(node.id, topic);
-      if (!existing) topicCount += 1;
+      try {
+        const topic = existing || await request("/items", {
+          method: "POST",
+          body: JSON.stringify({
+            type: "note",
+            title,
+            // Items deduplicate by content hash, so include the title to keep sibling nodes distinct.
+            content: [
+              `Topic: ${title}`,
+              description,
+              `Evidence: ${node.evidence.join(" / ")}`,
+              `Captured from: ${saved.title}`,
+            ].join("\n\n"),
+            metadata: { draft_kind: node.kind, evidence: node.evidence },
+          }),
+        });
+        savedByDraftId.set(node.id, topic);
+        if (!existing) topicCount += 1;
+      } catch (error) {
+        failedTopics.push({ title, message: error.message });
+      }
     }
     for (const relationship of pending.relationships.filter((candidate) => candidate.selected)) {
       const source = savedByDraftId.get(relationship.source)
@@ -1726,8 +1738,34 @@ async function saveCapture() {
       }
       const label = relationship.label.trim();
       const query = label ? `?label=${encodeURIComponent(label)}` : "";
-      await request(`/items/${source.id}/links/${target.id}${query}`, { method: "POST" });
-      connectionCount += 1;
+      try {
+        await request(`/items/${source.id}/links/${target.id}${query}`, { method: "POST" });
+        connectionCount += 1;
+      } catch (error) {
+        failedConnections.push({
+          source: source.title,
+          target: target.title,
+          message: error.message,
+        });
+      }
+    }
+    const failures = [
+      ...failedTopics.map((failure) => `${failure.title}: ${failure.message}`),
+      ...failedConnections.map(
+        (failure) => `${failure.source} → ${failure.target}: ${failure.message}`,
+      ),
+    ];
+    if (failures.length) {
+      await loadGraph();
+      const visibleFailures = failures.slice(0, 3).join("; ");
+      const remainingFailures = failures.length > 3
+        ? `; and ${failures.length - 3} more`
+        : "";
+      $("#map-message").textContent =
+        `Some map items could not be saved. ${visibleFailures}${remainingFailures}. ` +
+        "Successfully saved items are kept; fix the listed items and retry.";
+      toast(`Partial save: ${failures.length} item${failures.length === 1 ? "" : "s"} need attention`);
+      return;
     }
     $("#map-preview-dialog").close();
     $("#capture-dialog").close();

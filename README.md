@@ -134,9 +134,10 @@ edit node types as free text with suggestions and recently used labels, drag nod
 map, or switch to **Details** for the complete form-based editor. Nodes appear as dots with their
 labels beside them. Draft connections are unlabeled by default; add a name in the inspector if you
 want one. Incomplete selected draft nodes and their connections are skipped during saving; the
-remaining valid map is saved and the skipped items are reported. Scroll to zoom and drag empty canvas
-space to pan in both the preview and main graph. The notepad keeps the source text editable while
-you move between writing and preview.
+remaining valid map is saved and the skipped items are reported. If an API request for one item
+fails, saving continues for the rest and leaves the failed items available for retry. Scroll to zoom
+and drag empty canvas space to pan in both the preview and main graph. The notepad keeps the source
+text editable while you move between writing and preview.
 
 To connect nodes, select one, choose **Connect to node**, and click the target directly on the
 graph. You can optionally name the connection. Click a saved connection line to rename or
