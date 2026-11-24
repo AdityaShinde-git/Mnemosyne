@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111210">
     <title>Mnemosyne — your second brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=18">
+    <link rel="stylesheet" href="/static/styles.css?v=19">
   </head>
   <body>
     <div class="app-shell spaces-home-mode" id="app-shell">
@@ -140,8 +140,8 @@
           <textarea id="capture-content" class="note-editor" aria-label="Note content" required maxlength="20000" placeholder="Start with the thought you want to remember…"></textarea>
         </div>
         <div class="capture-source-row"><label for="capture-source">Source link <span class="optional">optional</span></label><input id="capture-source" maxlength="2048" placeholder="https://…"></div>
-        <p class="capture-hint">Preview creates an editable map. A free OpenRouter model interprets your note; NVIDIA is tried only if Ling is rate-limited, and paid fallbacks are disabled. Nothing is saved until you approve the map.</p>
-        <div class="modal-actions"><span class="form-message" id="capture-message"></span><button class="button secondary" type="button" data-close-dialog>Close</button><button class="button primary" id="preview-capture" type="button">Shape into a map <span>↗</span></button></div>
+        <p class="capture-hint">Shape into a map uses a free OpenRouter model to draft topics and connections. Build manually skips AI and opens the same editable map. Nothing is saved until you approve it.</p>
+        <div class="modal-actions capture-actions"><span class="form-message" id="capture-message"></span><button class="button secondary" type="button" data-close-dialog>Close</button><button class="button secondary" id="manual-capture" type="button">Build manually</button><button class="button primary" id="preview-capture" type="button">Shape into a map <span>↗</span></button></div>
       </form>
     </dialog>
 
@@ -157,7 +157,7 @@
 
     <dialog id="map-preview-dialog" class="modal map-preview-dialog">
       <div class="modal-form map-preview-form">
-        <div class="modal-heading"><div><p class="eyebrow">REVIEW YOUR MAP</p><h2>One thought, clearly linked<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <div class="modal-heading"><div><p class="eyebrow" id="map-preview-eyebrow">REVIEW YOUR MAP</p><h2><span id="map-preview-title">One thought, clearly linked</span><span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
         <div id="map-preview-content" class="map-preview"></div>
         <div class="modal-actions"><span class="form-message" id="map-message"></span><button class="button secondary" id="edit-capture" type="button">Back to notepad</button><button class="button primary" id="save-capture" type="button">Add to graph <span>↗</span></button></div>
       </div>
@@ -257,6 +257,6 @@
       </form>
     </dialog>
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=36" defer></script>
+    <script src="/static/app.js?v=37" defer></script>
   </body>
 </html>

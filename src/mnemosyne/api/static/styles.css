@@ -401,6 +401,8 @@ h1 { margin: 0; font-size: clamp(24px, 2.4vw, 32px); line-height: 1.2; letter-sp
 @media (max-width: 720px) {
   .capture-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .capture-form { height: calc(100dvh - 40px); min-height: 0; padding: 20px !important; }
+  .capture-actions { flex-wrap: wrap; }
+  .capture-actions .form-message { flex: 1 1 100%; }
   .note-paper { min-height: 0; padding: 14px 15px 10px; }
   .capture-modal .note-editor { min-height: 120px; font-size: 15px; }
   .capture-source-row { grid-template-columns: minmax(0, 1fr); gap: 5px; }

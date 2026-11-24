@@ -136,6 +136,11 @@ you select **Add to graph**. Evidence that is not an exact excerpt from the para
 and flagged in the preview for review. Do not send sensitive notes if you are not comfortable with
 the OpenRouter/provider data handling.
 
+Choose **Build manually** in the notepad to skip the model and open the same map editor with no
+suggested topics or connections. The first non-empty line becomes the editable main-note title;
+add nodes and connections directly on the map or in **Details**. Nothing is saved until you choose
+**Add to graph**.
+
 The interpreter is designed to work with informal, fragmented, or self-correcting wording and can
 draft up to 20 new nodes and 24 direct connections. It follows explicitly stated group sizes and
 connection labels. When explicitly asked for a counted brainstorm from broad categories, it
