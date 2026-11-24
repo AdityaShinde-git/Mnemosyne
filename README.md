@@ -9,12 +9,18 @@ Mnemosyne stores notes in PostgreSQL, indexes them for full-text and vector retr
 - Capture, list, update, and delete notes; content hashes make repeated captures idempotent.
 - Append-only item revisions and automatic text chunking.
 - Hybrid search that fuses PostgreSQL full-text and vector rankings with Reciprocal Rank Fusion (RRF).
+- Text search is the quick default; Hybrid combines full-text and vector rankings
+  with RRF, while Vector uses embedding similarity.
 - Offline hash embeddings by default; optional local Ollama semantic embeddings.
 - A `SKIP LOCKED` worker queue with retry/backoff for indexing and source ingestion.
 - Markdown, plain-text, PDF, and public HTML/text URL imports; incremental folder polling.
 - Browser uploads keep original files in the ignored `documents/` folder and index extracted text.
 - Manual graph links, `[[wiki links]]`, semantic suggestions, related notes, and forgotten connections.
-- Isolated graph spaces with a neural-galaxy selector, an approval-first notepad, and editable/deletable nodes and connections.
+- A Connections view for saved links and suggested links between similar notes
+  captured at least 30 days apart.
+- Isolated graph spaces with a neural-galaxy selector, an approval-first notepad,
+  and editable/deletable nodes and connections. Manage spaces from their cards;
+  only empty, non-default spaces can be deleted.
 - Timeline and first-class decision log.
 - API-key protection when configured, plus a graph-inspired capture/search/timeline UI.
 
@@ -104,13 +110,18 @@ mnemo-eval
 | `POST /api/ingest/url`, `GET /api/jobs/{id}` | Queue and inspect web imports |
 | `GET /health`, `/health/db` | Liveness and database checks |
 
-Set a long random `API_KEY` in `.env` to require `X-API-Key` on `/api/*`; the UI prompts for it and stores it in that browser's local storage. Keep the service bound to localhost unless it is behind HTTPS and a suitable access-control layer.
+Set a long random `API_KEY` in `.env` to require `X-API-Key` on `/api/*`; enter
+it in the UI's **Connection settings** dialog. The key is optional for a local
+server that does not require authentication and is stored in that browser's local
+storage. Keep the service bound to localhost unless it is behind HTTPS and a
+suitable access-control layer.
 
 URL ingestion accepts only HTTP(S), rejects non-public DNS addresses and redirects, and enforces a response-size limit. The default hash embedder makes no outbound network requests. Ollama requests go only to the configured local endpoint.
 
 The app opens to **Choose a space** each time. The last-opened space is marked **Continue**;
 search or select another card to enter a space. Inside one, use the sidebar switcher to return to
-the list. Each space has its own nodes, decisions, documents, and connections.
+the list. Each space has its own nodes, decisions, documents, and connections. Choose **Manage**
+on a space card to rename it or delete it when empty; the default Personal space cannot be deleted.
 
 Use **Open notepad** to write freely, then choose **Preview map**. Mnemosyne sends the paragraph
 and titles of up to 100 nodes in the current space to OpenRouter's
@@ -140,8 +151,10 @@ and drag empty canvas space to pan in both the preview and main graph. The notep
 text editable while you move between writing and preview.
 
 To connect nodes, select one, choose **Connect to node**, and click the target directly on the
-graph. You can optionally name the connection. Click a saved connection line to rename or
-delete it. Click a suggested semantic line to accept it as a named connection or dismiss it;
+graph. You can optionally name the connection. Solid graph lines are saved
+connections; dashed lines are suggested semantic similarities that have not
+been saved yet. Click a saved connection line to rename or delete it. Click a
+suggested semantic line to accept it as a named connection or dismiss it;
 deleting a `[[wiki link]]` also removes that link syntax from the source note.
 Select a node to edit or delete it. Decision nodes have their own editor for the topic, choice,
 reasoning, status, outcome, and revisit date.

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111210">
     <title>Mnemosyne — your second brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=15">
+    <link rel="stylesheet" href="/static/styles.css?v=17">
   </head>
   <body>
     <div class="app-shell spaces-home-mode" id="app-shell">
@@ -20,7 +20,7 @@
             <span class="space-switcher-copy"><small>SPACE</small><strong id="current-space-name">Choose a space</strong></span>
             <span class="space-switcher-chevron" aria-hidden="true">⌄</span>
           </button>
-          <button class="icon-button space-settings-button" id="manage-space" type="button" aria-label="Space settings" title="Space settings">⚙</button>
+          <button class="button secondary space-settings-button" id="manage-space" type="button" aria-label="Manage current space" title="Edit or delete this space"><span aria-hidden="true">⚙</span> Manage</button>
         </div>
         <button class="capture-button" id="open-capture"><span>＋</span> Capture a thought <kbd>⌘ K</kbd></button>
         <div class="nav-label">WORKSPACE</div>
@@ -28,12 +28,12 @@
           <button class="nav-item active" data-view="graph"><span class="nav-icon graph-icon"></span>Graph<span class="nav-count" id="count-items">0</span></button>
           <button class="nav-item" data-view="search"><span class="nav-icon search-icon"></span>Search</button>
           <button class="nav-item" data-view="timeline"><span class="nav-icon time-icon"></span>Timeline</button>
-          <button class="nav-item" data-view="connections"><span class="nav-icon link-icon"></span>Connections<span class="nav-dot"></span></button>
+          <button class="nav-item" data-view="connections"><span class="nav-icon link-icon"></span>Connections<span class="nav-count" id="count-connections">0</span></button>
           <button class="nav-item" data-view="decisions"><span class="nav-icon decision-icon"></span>Decisions</button>
         </nav>
         <div class="sidebar-bottom">
           <div class="privacy-card"><span class="privacy-dot"></span><div><strong>Your memory, your rules</strong><small>Preview sends text to AI</small></div><span class="lock-icon">⌑</span></div>
-          <button class="settings-link" id="api-key-button"><span class="settings-icon">⚙</span> API key & settings</button>
+          <button class="settings-link" id="api-key-button" type="button"><span class="settings-icon">⚙</span> Connection settings</button>
           <div class="user-row"><div class="avatar">M</div><div><strong>My Mnemosyne</strong><small>Local workspace</small></div><span class="more">···</span></div>
         </div>
       </aside>
@@ -59,19 +59,20 @@
         </section>
         <header class="topbar">
           <div class="breadcrumbs"><span id="breadcrumb-space">Workspace</span><i>/</i><strong id="view-label">Graph</strong></div>
-          <div class="topbar-actions"><span class="sync-state" id="sync-state"><span></span>Connecting</span><button class="icon-button" id="refresh-button" aria-label="Refresh">↻</button><button class="avatar small-avatar">M</button></div>
+          <div class="topbar-actions"><span class="sync-state" id="sync-state"><span></span>Connecting</span><button class="icon-button" id="refresh-button" aria-label="Refresh">↻</button></div>
         </header>
         <section class="view-panel" id="graph-view">
           <div class="view-heading">
             <div><p class="eyebrow">YOUR KNOWLEDGE, CONNECTED</p><h1>Memory graph<span class="heading-dot">.</span></h1><p class="subheading">A living map of the things you’ve learned, noticed, and decided.</p></div>
-            <div class="heading-actions"><button class="button secondary" id="graph-filter">All nodes <span>⌄</span></button><button class="button secondary" id="upload-document">↑ Add document</button><input id="document-file" type="file" accept=".md,.markdown,.txt,.pdf"><button class="button primary" id="graph-add">＋ Capture a thought</button></div>
+            <div class="heading-actions"><button class="button secondary" id="graph-filter">All nodes <span>⌄</span></button><button class="button secondary" id="upload-document">↑ Add document</button><input id="document-file" type="file" accept=".md,.markdown,.txt,.pdf"></div>
           </div>
           <div class="graph-toolbar">
-            <div class="graph-legend"><span><i class="legend-dot green"></i> Notes</span><span><i class="legend-dot yellow"></i> Documents</span><span><i class="legend-dot violet"></i> Decisions</span></div>
+            <div class="graph-legend"><span><i class="legend-dot green"></i> Notes</span><span><i class="legend-dot yellow"></i> Documents</span><span><i class="legend-dot violet"></i> Decisions</span><span><i class="legend-line"></i> Saved link</span><span title="Similarity suggestions are not saved connections"><i class="legend-line suggested"></i> Suggested (not saved)</span></div>
             <div class="graph-tools"><span id="graph-count">0 notes · 0 connections</span><button class="tool-button" id="zoom-out" aria-label="Zoom out">−</button><button class="tool-button" id="zoom-in" aria-label="Zoom in">＋</button><button class="tool-button" id="center-graph" aria-label="Center graph">⌖</button></div>
           </div>
           <div class="graph-stage" id="graph-stage">
             <svg id="graph-canvas" viewBox="0 0 1100 680" role="img" aria-label="Interactive graph of your notes"></svg>
+            <div class="graph-loading hidden" id="graph-loading" role="status"><span class="loading-spinner" aria-hidden="true"></span><span>Opening this map…</span></div>
             <div class="graph-empty" id="graph-empty"><p class="eyebrow">A FRESH SPACE</p><h2>Start with a thought</h2><p>Capture a note or add a document. Connections will appear as your space grows.</p><div class="graph-empty-actions"><button class="button primary" id="empty-add">＋ Capture a thought</button><button class="button secondary" id="empty-upload">↑ Add a document</button></div></div>
             <div class="graph-tip"><span class="tip-key">SCROLL</span> to zoom · <span class="tip-key">DRAG</span> canvas to pan · <span class="tip-key">DRAG</span> a node to move · <span class="tip-key">CLICK</span> a node or line to manage it</div>
             <div class="link-mode-banner hidden" id="link-mode-banner"><span>Choose a target node on the graph</span><button class="button secondary" id="cancel-link-mode" type="button">Cancel connection</button></div>
@@ -79,9 +80,26 @@
         </section>
 
         <section class="view-panel hidden" id="search-view">
-          <div class="view-heading compact-heading"><div><p class="eyebrow">FIND THE THREAD</p><h1>Search your memory<span class="heading-dot">.</span></h1><p class="subheading">Search exact phrases and related ideas in one place.</p></div></div>
-          <form class="search-form" id="search-form"><span class="large-search-icon"></span><input id="search-query" type="search" placeholder="Try “what did I learn about…”" autocomplete="off"><select id="search-mode" aria-label="Search mode"><option value="hybrid">Hybrid</option><option value="text">Text</option><option value="vector">Vector</option></select><kbd>ENTER</kbd><button class="button primary" type="submit">Search</button></form>
-          <div class="search-meta" id="search-meta">Hybrid combines full-text ranking with vector similarity using Reciprocal Rank Fusion.</div>
+          <div class="view-heading compact-heading"><div><p class="eyebrow">FIND THE THREAD</p><h1>Search your memory<span class="heading-dot">.</span></h1><p class="subheading">Find a note by its words, or explore ideas with a similar meaning.</p></div></div>
+          <form class="search-form" id="search-form"><div class="search-input-shell"><span class="large-search-icon" aria-hidden="true"></span><input id="search-query" type="search" aria-label="Search current space" placeholder="Search notes, decisions, and documents…" autocomplete="off"><button class="search-clear hidden" id="search-clear" type="button" aria-label="Clear search">×</button></div><button class="button primary" type="submit" aria-label="Search current space"><span aria-hidden="true">⌕</span> Search</button></form>
+          <div class="search-options">
+            <div class="search-modes" role="group" aria-label="Search style">
+              <button class="search-mode active" type="button" data-search-mode="text" aria-pressed="true">Text</button>
+              <button class="search-mode" type="button" data-search-mode="hybrid" aria-pressed="false">Hybrid</button>
+              <button class="search-mode" type="button" data-search-mode="vector" aria-pressed="false">Vector</button>
+            </div>
+            <p id="search-mode-hint">Text matches words in your notes. It is the quickest option.</p>
+          </div>
+          <div class="search-meta" id="search-meta" aria-live="polite">Search is limited to your current space.</div>
+          <div class="search-welcome" id="search-welcome">
+            <p class="eyebrow">A PLACE TO START</p>
+            <p>Search for a project, a decision, or a phrase you remember.</p>
+            <div class="search-prompts">
+              <button type="button" data-search-example="What decisions have I made?">Decisions</button>
+              <button type="button" data-search-example="Notes about a project">Projects</button>
+              <button type="button" data-search-example="What did I learn about?">Things I learned</button>
+            </div>
+          </div>
           <div class="result-list" id="search-results"></div>
         </section>
 
@@ -91,8 +109,15 @@
         </section>
 
         <section class="view-panel hidden" id="connections-view">
-          <div class="view-heading compact-heading"><div><p class="eyebrow">A LITTLE DISTANCE, A NEW IDEA</p><h1>Forgotten connections<span class="heading-dot">.</span></h1><p class="subheading">Related notes from different moments in time, not already linked.</p></div></div>
-          <div class="connection-list" id="connection-list"></div>
+          <div class="view-heading compact-heading"><div><p class="eyebrow">FOLLOW THE LINKS</p><h1>Connections<span class="heading-dot">.</span></h1><p class="subheading">Review the links you’ve made and connect ideas that might belong together.</p></div></div>
+          <section class="connections-section" aria-labelledby="saved-connections-heading">
+            <div class="connections-section-heading"><div><h2 id="saved-connections-heading">Saved connections</h2><p>Links already in this space’s graph.</p></div><span class="section-count" id="saved-connection-count">0</span></div>
+            <div class="connection-list" id="saved-connection-list"></div>
+          </section>
+          <section class="connections-section" aria-labelledby="suggested-connections-heading">
+            <div class="connections-section-heading"><div><h2 id="suggested-connections-heading">Worth connecting</h2><p>Similar notes captured at least 30 days apart, with no link yet.</p></div></div>
+            <div class="connection-list" id="suggested-connection-list"></div>
+          </section>
         </section>
 
         <section class="view-panel hidden" id="decisions-view">
@@ -159,11 +184,23 @@
 
     <dialog id="space-dialog" class="modal">
       <form method="dialog" id="space-form">
-        <div class="modal-heading"><div><p class="eyebrow">YOUR SPACES</p><h2>Separate graphs, one workspace<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
-        <p class="capture-hint">Each space has its own nodes, decisions, documents, and connections.</p>
+        <div class="modal-heading"><div><p class="eyebrow">SPACE MANAGEMENT</p><h2><span id="space-dialog-title">Create a space</span><span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <p class="capture-hint" id="space-dialog-description">Each space keeps its notes, decisions, documents, and connections separate.</p>
         <label for="space-name">Space name</label><input id="space-name" required maxlength="120" placeholder="e.g. Product ideas">
+        <p class="space-management-hint hidden" id="space-management-hint"></p>
         <p class="capture-hint" id="space-form-message" role="status"></p>
-        <div class="modal-actions"><button class="button danger-button" id="delete-space" type="button">Delete empty space</button><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-space" type="submit">Save space</button></div>
+        <div class="modal-actions"><button class="button danger-button" id="delete-space" type="button">Delete space</button><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" id="save-space" type="submit">Save changes</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="connection-settings-dialog" class="modal">
+      <form method="dialog" id="connection-settings-form">
+        <div class="modal-heading"><div><p class="eyebrow">BROWSER ACCESS</p><h2>Connection settings<span class="heading-dot">.</span></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
+        <p class="capture-hint">A key is only needed when the Mnemosyne server requires one. For a standard local setup, leave this blank. The key authorizes this browser; it does not change server settings or enable extra features.</p>
+        <label for="api-key-input">Server API key <span class="optional">optional</span></label>
+        <input id="api-key-input" type="password" autocomplete="off" placeholder="Enter the key provided by your server administrator">
+        <p class="space-management-hint">The key is stored in this browser’s local storage and sent only with requests to this Mnemosyne server.</p>
+        <div class="modal-actions"><button class="button secondary" id="clear-api-key" type="button">Clear key</button><button class="button secondary" type="button" data-close-dialog>Cancel</button><button class="button primary" type="submit">Save settings</button></div>
       </form>
     </dialog>
 
@@ -220,6 +257,6 @@
       </form>
     </dialog>
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=29" defer></script>
+    <script src="/static/app.js?v=34" defer></script>
   </body>
 </html>

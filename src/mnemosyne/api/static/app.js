@@ -27,7 +27,11 @@ const state = {
   offsetX: 0, offsetY: 0, selected: null, filter: "all",
   linkSourceId: null, linkTargetId: null, nodeDrag: null, suppressNodeClick: null,
   nodePositions: readNodePositions(), spaceId: localStorage.getItem("mnemosyne-space-id"),
-  spaces: [], editingEdge: null, decisions: [], editingDecision: null, confirmResolver: null,
+  spaces: [], graphCache: new Map(), graphLoadedSpaces: new Set(),
+  graphRequests: new Map(), graphRequestId: 0,
+  itemsById: new Map(), relatedById: new Map(), relatedErrors: new Map(),
+  detailRequestId: 0, searchRequestId: 0, connectionsRequestId: 0, searchMode: "text",
+  editingEdge: null, decisions: [], editingDecision: null, confirmResolver: null,
   documentPreview: null,
 };
 const COLORS = { note: "#67d694", document: "#e2d571", bookmark: "#90a8d7", decision: "#9c87d8" };
@@ -209,7 +213,7 @@ function showView(name) {
   const activeSpace = state.spaces.find((space) => space.id === state.spaceId);
   $("#breadcrumb-space").textContent = activeSpace?.name || "Workspace";
   $("#view-label").textContent = name.charAt(0).toUpperCase() + name.slice(1);
-  if (name === "graph") loadGraph();
+  if (name === "graph") loadGraph(false);
   if (name === "timeline") loadTimeline();
   if (name === "connections") loadConnections();
   if (name === "decisions") loadDecisions();
@@ -246,6 +250,10 @@ function zoomMainGraph(factor, anchorX = 550, anchorY = 340) {
 
 function renderGraph(data) {
   state.graph = data;
+  if (state.graphLoadedSpaces.has(state.spaceId)) cacheGraph(state.spaceId, data);
+  $("#count-connections").textContent = String(
+    data.edges.filter((edge) => edge.kind !== "semantic" && edge.kind !== "suppressed_semantic").length,
+  );
   const svg = $("#graph-canvas");
   svg.replaceChildren();
   const allNodes = data.nodes || [];
@@ -453,6 +461,12 @@ function renderGraph(data) {
   });
 }
 
+function updateSelectedGraphNode(id) {
+  for (const node of $$("#graph-canvas .graph-node")) {
+    node.classList.toggle("selected", node.dataset.id === id);
+  }
+}
+
 function eventPointInDrawing(event, drawing) {
   const matrix = drawing.getScreenCTM();
   if (!matrix) return null;
@@ -472,32 +486,127 @@ function saveNodePositions() {
   }
 }
 
-async function loadGraph() {
-  try {
-    const data = await request("/graph");
-    renderGraph(data);
-    setSync(true);
-  } catch (error) {
-    setSync(false, "Not connected");
-    $("#graph-empty").classList.remove("hidden");
-    toast(error.message);
+function cacheGraph(spaceId, data) {
+  if (!spaceId) return;
+  state.graphCache.delete(spaceId);
+  state.graphCache.set(spaceId, data);
+  while (state.graphCache.size > 4) {
+    state.graphCache.delete(state.graphCache.keys().next().value);
   }
 }
 
-async function selectItem(id) {
-  try {
-    const item = await request(`/items/${id}`);
-    state.selected = item;
-    renderGraph(state.graph);
-    const related = await request(`/items/${id}/related?limit=4`).catch(() => []);
-    const decision = item.type === "decision"
-      ? (await request("/decisions")).find((entry) => entry.item_id === item.id)
-      : null;
-    renderDetail(item, related, decision);
-  } catch (error) { toast(error.message); }
+async function loadGraph(force = true) {
+  const spaceId = state.spaceId;
+  const cached = state.graphCache.get(spaceId);
+  if (!force && cached && state.graphLoadedSpaces.has(spaceId)) {
+    $("#graph-loading").classList.add("hidden");
+    renderGraph(cached);
+    setSync(true);
+    return true;
+  }
+  const pending = state.graphRequests.get(spaceId);
+  if (!force && pending) return pending.promise;
+  if (!state.graph.nodes.length) {
+    $("#graph-empty").classList.add("hidden");
+    $("#graph-loading").classList.remove("hidden");
+  }
+  const requestId = ++state.graphRequestId;
+  const promise = (async () => {
+    try {
+      const data = await request("/graph");
+      if (state.graphRequests.get(spaceId)?.id !== requestId) return false;
+      state.graphLoadedSpaces.add(spaceId);
+      cacheGraph(spaceId, data);
+      if (state.spaceId !== spaceId) return false;
+      $("#graph-loading").classList.add("hidden");
+      state.relatedById.clear();
+      state.relatedErrors.clear();
+      renderGraph(data);
+      setSync(true);
+      return true;
+    } catch (error) {
+      if (state.graphRequests.get(spaceId)?.id !== requestId || state.spaceId !== spaceId) {
+        return false;
+      }
+      $("#graph-loading").classList.add("hidden");
+      setSync(false, "Not connected");
+      $("#graph-empty").classList.remove("hidden");
+      toast(error.message);
+      return false;
+    } finally {
+      if (state.graphRequests.get(spaceId)?.id === requestId) {
+        state.graphRequests.delete(spaceId);
+      }
+    }
+  })();
+  state.graphRequests.set(spaceId, { id: requestId, promise });
+  return promise;
 }
 
-function renderDetail(item, related = [], decision = null) {
+async function selectItem(id) {
+  const requestId = ++state.detailRequestId;
+  const spaceId = state.spaceId;
+  try {
+    const item = state.itemsById.get(id) || await request(`/items/${id}`);
+    if (requestId !== state.detailRequestId || spaceId !== state.spaceId) return;
+    state.itemsById.set(id, item);
+    state.selected = item;
+    updateSelectedGraphNode(id);
+    const related = state.relatedById.get(id);
+    const decision = state.decisions.find((entry) => entry.item_id === item.id) || null;
+    renderDetail(
+      item,
+      related || [],
+      decision,
+      related ? null : state.relatedErrors.get(id) || "loading",
+    );
+    if (!related) void loadRelatedForSelection(item, requestId, spaceId);
+    if (item.type === "decision" && !decision) {
+      void loadDecisionForSelection(item, requestId, spaceId);
+    }
+  } catch (error) {
+    if (requestId === state.detailRequestId && spaceId === state.spaceId) toast(error.message);
+  }
+}
+
+async function loadRelatedForSelection(item, requestId, spaceId) {
+  try {
+    const hits = await request(`/items/${item.id}/related?limit=4`);
+    if (spaceId !== state.spaceId) return;
+    state.relatedById.set(item.id, hits);
+    state.relatedErrors.delete(item.id);
+    for (const hit of hits) state.itemsById.set(hit.item.id, hit.item);
+    if (requestId === state.detailRequestId) {
+      renderDetail(item, hits, state.decisions.find((entry) => entry.item_id === item.id) || null);
+    }
+  } catch (error) {
+    if (requestId === state.detailRequestId && spaceId === state.spaceId) {
+      state.relatedErrors.set(item.id, error.message);
+      renderDetail(item, [], state.decisions.find((entry) => entry.item_id === item.id) || null, error.message);
+    }
+  }
+}
+
+async function loadDecisionForSelection(item, requestId, spaceId) {
+  try {
+    const decisions = await request("/decisions");
+    if (spaceId !== state.spaceId) return;
+    state.decisions = decisions;
+    if (requestId === state.detailRequestId) {
+      renderDetail(
+        item,
+        state.relatedById.get(item.id) || [],
+        decisions.find((entry) => entry.item_id === item.id) || null,
+        state.relatedById.has(item.id) ? null : state.relatedErrors.get(item.id) || "loading",
+      );
+    }
+  } catch (error) {
+    if (requestId === state.detailRequestId && spaceId === state.spaceId) toast(error.message);
+  }
+}
+
+function renderDetail(item, related = [], decision = null, relatedStatus = null) {
+  state.itemsById.set(item.id, item);
   const container = $("#detail-content");
   container.classList.remove("detail-placeholder");
   const type = document.createElement("span");
@@ -549,7 +658,7 @@ function renderDetail(item, related = [], decision = null) {
       source.textContent = "Open source ↗"; container.append(divider, source);
     }
   }
-  if (related.length) {
+  if (related.length || relatedStatus) {
     const divider = document.createElement("div"); divider.className = "detail-divider";
     const subhead = document.createElement("div"); subhead.className = "detail-subhead"; subhead.textContent = "Related notes";
     container.append(divider, subhead);
@@ -557,6 +666,19 @@ function renderDetail(item, related = [], decision = null) {
       const link = document.createElement("button"); link.className = "related-link";
       link.textContent = hit.item.title; link.addEventListener("click", () => selectItem(hit.item.id));
       container.append(link);
+    }
+    if (relatedStatus) {
+      const status = document.createElement("p");
+      status.className = "related-status";
+      status.textContent = relatedStatus === "loading"
+        ? "Finding related notes…"
+        : relatedStatus;
+      container.append(status);
+    } else if (!related.length) {
+      const status = document.createElement("p");
+      status.className = "related-status";
+      status.textContent = "No related notes found yet.";
+      container.append(status);
     }
   }
 }
@@ -759,14 +881,39 @@ async function loadTimeline() {
 }
 
 async function loadConnections() {
-  const list = $("#connection-list");
-  list.replaceChildren();
+  const savedList = $("#saved-connection-list");
+  const suggestedList = $("#suggested-connection-list");
+  const spaceId = state.spaceId;
+  const requestId = ++state.connectionsRequestId;
+  if (state.graphCache.has(spaceId)) {
+    renderSavedConnections();
+  } else {
+    savedList.replaceChildren();
+    empty(savedList, "Loading saved connections…");
+    void loadGraph(false).then((loaded) => {
+      if (state.spaceId !== spaceId) return;
+      if (loaded) renderSavedConnections();
+      else {
+        savedList.replaceChildren();
+        empty(savedList, "Could not load saved connections. Try refreshing the graph.");
+      }
+    });
+  }
+  suggestedList.replaceChildren();
+  empty(suggestedList, "Looking for ideas worth connecting…");
   try {
     const pairs = await request("/connections/forgotten?limit=30");
-    if (!pairs.length) return empty(list, "No distant connections surfaced yet. Index more notes and check back.");
+    if (state.spaceId !== spaceId || requestId !== state.connectionsRequestId) return;
+    suggestedList.replaceChildren();
+    if (!pairs.length) {
+      return empty(
+        suggestedList,
+        "No suggestions yet. Mnemosyne looks for similar, indexed notes captured at least 30 days apart that are not already linked.",
+      );
+    }
     for (const pair of pairs) {
       const card = document.createElement("article"); card.className = "connection-card";
-      card.innerHTML = `<span class="similarity"></span><div class="connection-pair"><div class="connection-note"><strong></strong><small></small></div><div class="connection-arrow">↔</div><div class="connection-note"><strong></strong><small></small></div></div><p class="explanation"></p>`;
+      card.innerHTML = `<span class="similarity"></span><div class="connection-pair"><div class="connection-note"><strong></strong><small></small></div><div class="connection-arrow">↔</div><div class="connection-note"><strong></strong><small></small></div></div><p class="explanation"></p><button class="button secondary suggestion-connect" type="button">Connect these notes</button>`;
       card.querySelector(".similarity").textContent = `${Math.round(pair.similarity * 100)}%`;
       const notes = card.querySelectorAll(".connection-note");
       notes[0].querySelector("strong").textContent = pair.left.title;
@@ -775,9 +922,73 @@ async function loadConnections() {
       notes[1].querySelector("small").textContent = "Later thought";
       card.querySelector(".explanation").textContent = pair.explanation;
       card.addEventListener("click", () => selectItem(pair.left.id));
-      list.append(card);
+      card.querySelector(".suggestion-connect").addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          await request(`/items/${pair.left.id}/links/${pair.right.id}`, { method: "POST" });
+          if (state.spaceId !== spaceId) return;
+          if (!state.graph.edges.some((edge) =>
+            edge.kind !== "semantic"
+            && ((edge.source === pair.left.id && edge.target === pair.right.id)
+              || (edge.source === pair.right.id && edge.target === pair.left.id)))) {
+            state.graph.edges.push({
+              source: pair.left.id,
+              target: pair.right.id,
+              kind: "manual",
+              label: null,
+            });
+          }
+          renderGraph(state.graph);
+          renderSavedConnections();
+          card.remove();
+          if (!suggestedList.children.length) {
+            empty(suggestedList, "You’ve reviewed all current suggestions.");
+          }
+          toast("Connection saved");
+        } catch (error) {
+          button.disabled = false;
+          toast(error.message);
+        }
+      });
+      suggestedList.append(card);
     }
-  } catch (error) { empty(list, error.message); }
+  } catch (error) {
+    if (state.spaceId === spaceId && requestId === state.connectionsRequestId) {
+      suggestedList.replaceChildren();
+      empty(suggestedList, `Could not load suggestions: ${error.message}`);
+    }
+  }
+}
+
+function renderSavedConnections() {
+  const list = $("#saved-connection-list");
+  list.replaceChildren();
+  const nodes = new Map(state.graph.nodes.map((node) => [node.id, node]));
+  const edges = state.graph.edges.filter(
+    (edge) => edge.kind !== "semantic" && edge.kind !== "suppressed_semantic",
+  );
+  $("#saved-connection-count").textContent = String(edges.length);
+  if (!edges.length) {
+    empty(list, "No saved links yet. Connect two notes from the graph, or accept a suggestion below.");
+    return;
+  }
+  for (const edge of edges) {
+    const source = nodes.get(edge.source);
+    const target = nodes.get(edge.target);
+    if (!source || !target) continue;
+    const card = document.createElement("article");
+    card.className = "connection-card saved-connection-card";
+    card.innerHTML = `<div class="connection-pair"><button class="connection-note" type="button"><strong></strong><small>Open note</small></button><div class="connection-arrow">↔</div><button class="connection-note" type="button"><strong></strong><small>Open note</small></button></div><p class="explanation"></p>`;
+    const notes = card.querySelectorAll(".connection-note");
+    notes[0].querySelector("strong").textContent = source.title;
+    notes[1].querySelector("strong").textContent = target.title;
+    notes[0].addEventListener("click", () => selectItem(source.id));
+    notes[1].addEventListener("click", () => selectItem(target.id));
+    card.querySelector(".explanation").textContent = edge.label || "Saved connection";
+    list.append(card);
+  }
 }
 
 async function loadDecisions() {
@@ -813,29 +1024,58 @@ function renderResults(hits) {
   if (!hits.length) return empty(list, "No matches yet. Try another phrase or capture more context.");
   for (const hit of hits) {
     const item = hit.item;
+    state.itemsById.set(item.id, item);
     const card = document.createElement("article"); card.className = "result-card";
     card.innerHTML = `<div class="card-kicker"></div><h3></h3><p></p><div class="card-meta"><span></span><span></span></div>`;
     card.querySelector(".card-kicker").textContent = item.type;
     card.querySelector("h3").textContent = item.title;
-    card.querySelector("p").textContent = item.content.slice(0, 280);
+    card.querySelector("p").textContent = searchExcerpt(item.content, $("#search-query").value);
     card.querySelector(".card-meta span:first-child").textContent = niceDate(item.captured_at);
-    card.querySelector(".card-meta span:last-child").textContent = `RRF ${hit.score.toFixed(4)} · ${hit.matched_by.join(" + ")}`;
+    card.querySelector(".card-meta span:last-child").textContent =
+      hit.matched_by.length > 1 ? "Text + vector"
+        : hit.matched_by[0] === "vector" ? "Vector similarity" : "Text match";
     card.addEventListener("click", () => selectItem(item.id));
     list.append(card);
   }
 }
 
-async function runSearch(query, mode = "hybrid") {
-  $("#search-meta").textContent = "Searching your notes…";
+function searchExcerpt(content, query) {
+  const text = content.trim();
+  const matchAt = text.toLocaleLowerCase().indexOf(query.trim().toLocaleLowerCase());
+  const start = matchAt > 90 ? matchAt - 70 : 0;
+  const excerpt = text.slice(start, start + 240);
+  return `${start ? "… " : ""}${excerpt}${start + excerpt.length < text.length ? " …" : ""}`;
+}
+
+async function runSearch(query, mode = state.searchMode) {
+  const requestId = ++state.searchRequestId;
+  const startedAt = performance.now();
+  $("#search-welcome").classList.add("hidden");
+  $("#search-results").replaceChildren();
+  $("#search-meta").textContent = "Searching this space…";
+  $("#search-results").setAttribute("aria-busy", "true");
+  empty($("#search-results"), "Searching your memory…");
   try {
     const hits = await request(
       `/search?q=${encodeURIComponent(query)}&limit=30&mode=${encodeURIComponent(mode)}`,
     );
-    $("#search-meta").textContent = `${hits.length} ${hits.length === 1 ? "result" : "results"} · Reciprocal Rank Fusion`;
+    if (requestId !== state.searchRequestId) return;
+    const modeLabel = mode === "text" ? "Text"
+      : mode === "vector" ? "Vector" : "Hybrid";
+    const duration = Math.max(1, Math.round(performance.now() - startedAt));
+    $("#search-meta").textContent =
+      `${hits.length} ${hits.length === 1 ? "result" : "results"} · ${modeLabel} · ${duration} ms`;
     renderResults(hits);
+    $("#search-welcome").classList.add("hidden");
   } catch (error) {
+    if (requestId !== state.searchRequestId) return;
     $("#search-meta").textContent = error.message;
     $("#search-results").replaceChildren();
+    $("#search-welcome").classList.add("hidden");
+  } finally {
+    if (requestId === state.searchRequestId) {
+      $("#search-results").setAttribute("aria-busy", "false");
+    }
   }
 }
 
@@ -1658,10 +1898,24 @@ function renderDraftPreview() {
   }
 }
 
+async function runConcurrent(items, limit, operation) {
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, limit);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await operation(item);
+    }
+  }));
+}
+
 async function saveCapture() {
   const pending = state.pendingCapture;
   if (!pending) return;
   const button = $("#save-capture"); button.disabled = true;
+  const buttonContent = button.innerHTML;
+  button.textContent = "Saving map…";
   $("#map-message").textContent = "";
   let saved = null;
   let topicCount = 0;
@@ -1696,11 +1950,11 @@ async function saveCapture() {
       source_uri: pending.source || null,
     }) });
     const savedByDraftId = new Map([["root", saved]]);
-    for (const node of saveableNodes) {
+    await runConcurrent(saveableNodes, 4, async (node) => {
       const { title, description } = node;
       if (title.toLocaleLowerCase() === saved.title.toLocaleLowerCase()) {
         savedByDraftId.set(node.id, saved);
-        continue;
+        return;
       }
       const existing = state.graph.nodes.find(
         (candidate) => candidate.title.toLocaleLowerCase() === title.toLocaleLowerCase(),
@@ -1726,29 +1980,33 @@ async function saveCapture() {
       } catch (error) {
         failedTopics.push({ title, message: error.message });
       }
-    }
-    for (const relationship of pending.relationships.filter((candidate) => candidate.selected)) {
-      const source = savedByDraftId.get(relationship.source)
-        || state.graph.nodes.find((node) => node.id === relationship.source);
-      const target = savedByDraftId.get(relationship.target)
-        || state.graph.nodes.find((node) => node.id === relationship.target);
-      if (!source || !target || source.id === target.id) {
-        skippedConnectionCount += 1;
-        continue;
-      }
-      const label = relationship.label.trim();
-      const query = label ? `?label=${encodeURIComponent(label)}` : "";
-      try {
-        await request(`/items/${source.id}/links/${target.id}${query}`, { method: "POST" });
-        connectionCount += 1;
-      } catch (error) {
-        failedConnections.push({
-          source: source.title,
-          target: target.title,
-          message: error.message,
-        });
-      }
-    }
+    });
+    await runConcurrent(
+      pending.relationships.filter((candidate) => candidate.selected),
+      4,
+      async (relationship) => {
+        const source = savedByDraftId.get(relationship.source)
+          || state.graph.nodes.find((node) => node.id === relationship.source);
+        const target = savedByDraftId.get(relationship.target)
+          || state.graph.nodes.find((node) => node.id === relationship.target);
+        if (!source || !target || source.id === target.id) {
+          skippedConnectionCount += 1;
+          return;
+        }
+        const label = relationship.label.trim();
+        const query = label ? `?label=${encodeURIComponent(label)}` : "";
+        try {
+          await request(`/items/${source.id}/links/${target.id}${query}`, { method: "POST" });
+          connectionCount += 1;
+        } catch (error) {
+          failedConnections.push({
+            source: source.title,
+            target: target.title,
+            message: error.message,
+          });
+        }
+      },
+    );
     const failures = [
       ...failedTopics.map((failure) => `${failure.title}: ${failure.message}`),
       ...failedConnections.map(
@@ -1797,7 +2055,10 @@ async function saveCapture() {
       : error.message;
     if (saved) void loadGraph();
   }
-  finally { button.disabled = false; }
+  finally {
+    button.disabled = false;
+    button.innerHTML = buttonContent;
+  }
 }
 
 $("#preview-capture").addEventListener("click", renderCapturePreview);
@@ -2025,7 +2286,16 @@ function renderSpacesHome(query = "") {
     open.className = `button ${isLastOpened ? "primary" : "secondary"} space-card-open`;
     open.textContent = isLastOpened ? "Continue" : "Open space";
     open.addEventListener("click", () => selectSpace(space.id));
-    card.append(top, title, meta, activity, open);
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.className = "button secondary";
+    manage.textContent = "Manage";
+    manage.setAttribute("aria-label", `Manage ${space.name}`);
+    manage.addEventListener("click", () => openSpaceDialog(space));
+    const actions = document.createElement("div");
+    actions.className = "space-card-actions";
+    actions.append(open, manage);
+    card.append(top, title, meta, activity, actions);
     cards.append(card);
   }
 
@@ -2043,22 +2313,73 @@ function renderSpacesHome(query = "") {
 }
 
 function selectSpace(spaceId) {
+  const changed = state.spaceId !== spaceId;
   state.spaceId = spaceId;
   localStorage.setItem("mnemosyne-space-id", spaceId);
+  if (changed) {
+    state.detailRequestId += 1;
+    state.searchRequestId += 1;
+    state.connectionsRequestId += 1;
+    state.selected = null;
+    state.graph = state.graphLoadedSpaces.has(spaceId)
+      ? state.graphCache.get(spaceId) || { nodes: [], edges: [] }
+      : { nodes: [], edges: [] };
+    state.itemsById.clear();
+    state.relatedById.clear();
+    state.relatedErrors.clear();
+    state.decisions = [];
+    $("#search-query").value = "";
+    $("#search-clear").classList.add("hidden");
+    $("#search-results").replaceChildren();
+    $("#search-results").setAttribute("aria-busy", "false");
+    $("#search-meta").textContent = "Search is limited to your current space.";
+    $("#search-welcome").classList.remove("hidden");
+  }
   const active = state.spaces.find((space) => space.id === spaceId);
   if (active) $("#current-space-name").textContent = active.name;
   $("#close-detail").click();
   showView("graph");
 }
 
-function openSpaceDialog(space = null) {
+async function openSpaceDialog(space = null) {
+  if (space) {
+    try {
+      const spaces = await request("/spaces");
+      state.spaces = spaces;
+      space = spaces.find((entry) => entry.id === space.id);
+      if (!space) {
+        toast("This space is no longer available.");
+        return;
+      }
+      if (state.view === "spaces") renderSpacesHome($("#spaces-home-search").value);
+      const active = spaces.find((entry) => entry.id === state.spaceId);
+      if (active) $("#current-space-name").textContent = active.name;
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
+  }
   state.editingSpaceId = space?.id || null;
   $("#space-name").value = space?.name || "";
-  $("#space-dialog").querySelector("h2").textContent =
-    space ? "Space settings" : "Create a space";
+  $("#space-dialog-title").textContent = space ? "Manage this space" : "Create a space";
+  $("#space-dialog-description").textContent = space
+    ? "Rename this space or review its deletion options."
+    : "Each space keeps its notes, decisions, documents, and connections separate.";
   $("#save-space").textContent = space ? "Save changes" : "Create space";
-  $("#delete-space").classList.toggle("hidden", !space || space.id === DEFAULT_SPACE_ID);
-  $("#delete-space").disabled = false;
+  const deleteButton = $("#delete-space");
+  const isDefault = space?.id === DEFAULT_SPACE_ID;
+  const hasItems = (space?.item_count || 0) > 0;
+  deleteButton.classList.toggle("hidden", !space);
+  deleteButton.disabled = !space || isDefault || hasItems;
+  const managementHint = $("#space-management-hint");
+  managementHint.classList.toggle("hidden", !space);
+  managementHint.textContent = !space
+    ? ""
+    : isDefault
+      ? "The Personal space is your default space and cannot be deleted."
+      : hasItems
+        ? "A space can only be deleted when it is empty. Delete its memories first."
+        : "Deleting an empty space cannot be undone.";
   $("#space-form-message").textContent = "";
   $("#space-dialog").showModal();
   $("#space-name").focus();
@@ -2099,14 +2420,21 @@ $("#delete-space").addEventListener("click", async () => {
     !spaceId
     || !(await askConfirmation("Only empty spaces can be deleted. This cannot be undone.", "Delete this space?"))
   ) return;
+  const deletingActiveSpace = state.spaceId === spaceId;
   try {
     await request(`/spaces/${spaceId}`, { method: "DELETE" });
     $("#space-dialog").close();
-    state.spaceId = null;
-    localStorage.removeItem("mnemosyne-space-id");
+    if (deletingActiveSpace) {
+      state.spaceId = null;
+      localStorage.removeItem("mnemosyne-space-id");
+    }
     await loadSpaces();
-    $("#close-detail").click();
-    showView("spaces");
+    if (deletingActiveSpace) {
+      $("#close-detail").click();
+      showView("spaces");
+    } else {
+      renderSpacesHome();
+    }
     toast("Space deleted");
   } catch (error) {
     toast(error.message);
@@ -2251,10 +2579,43 @@ $("#decision-form").addEventListener("submit", async (event) => {
 $("#search-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const query = $("#search-query").value.trim();
-  if (query) runSearch(query, $("#search-mode").value);
+  if (query) runSearch(query);
 });
+$("#search-query").addEventListener("input", () => {
+  $("#search-clear").classList.toggle("hidden", !$("#search-query").value);
+});
+$("#search-clear").addEventListener("click", () => {
+  state.searchRequestId += 1;
+  $("#search-query").value = "";
+  $("#search-clear").classList.add("hidden");
+  $("#search-results").replaceChildren();
+  $("#search-results").setAttribute("aria-busy", "false");
+  $("#search-meta").textContent = "Search is limited to your current space.";
+  $("#search-welcome").classList.remove("hidden");
+  $("#search-query").focus();
+});
+$$("[data-search-mode]").forEach((button) => button.addEventListener("click", () => {
+  state.searchMode = button.dataset.searchMode;
+  $$("[data-search-mode]").forEach((modeButton) => {
+    const active = modeButton === button;
+    modeButton.classList.toggle("active", active);
+    modeButton.setAttribute("aria-pressed", String(active));
+  });
+  $("#search-mode-hint").textContent = state.searchMode === "text"
+    ? "Text matches words in your notes. It is the quickest option."
+    : state.searchMode === "vector"
+      ? "Vector compares embeddings to find related meaning, even when notes use different words. It needs indexed embeddings and can take longer."
+      : "Hybrid combines text matches with vector similarity. It balances exact terms with related concepts.";
+  const query = $("#search-query").value.trim();
+  if (query) runSearch(query);
+}));
+$$("[data-search-example]").forEach((button) => button.addEventListener("click", () => {
+  const query = button.dataset.searchExample;
+  $("#search-query").value = query;
+  $("#search-clear").classList.remove("hidden");
+  runSearch(query);
+}));
 $("#open-capture").addEventListener("click", openCapture);
-$("#graph-add").addEventListener("click", openCapture);
 $("#empty-add").addEventListener("click", openCapture);
 $("#empty-upload").addEventListener("click", () => $("#document-file").click());
 $("#new-decision").addEventListener("click", () => $("#decision-dialog").showModal());
@@ -2270,21 +2631,37 @@ $$("[data-close-dialog]").forEach((button) => {
     dialog.close();
   });
 });
-$("#refresh-button").addEventListener("click", () => showView(state.view));
+$("#refresh-button").addEventListener("click", () => {
+  if (state.view === "graph") void loadGraph(true);
+  else showView(state.view);
+});
 $("#close-detail").addEventListener("click", () => {
+  state.detailRequestId += 1;
   state.selected = null;
+  updateSelectedGraphNode(null);
   $("#detail-content").className = "detail-placeholder";
   $("#detail-content").innerHTML = `<div class="detail-orbit">✳</div><strong>Follow a thought</strong><p>Select a node or search result to see its details and related notes.</p>`;
-  if (state.view === "graph") renderGraph(state.graph);
 });
 $("#api-key-button").addEventListener("click", () => {
-  const key = window.prompt("API key (leave empty if API_KEY is not configured):", apiKey());
-  if (key !== null) {
-    if (key) localStorage.setItem("mnemosyne-api-key", key);
-    else localStorage.removeItem("mnemosyne-api-key");
-    toast("API key saved in this browser");
-    loadGraph();
-  }
+  $("#api-key-input").value = apiKey();
+  $("#connection-settings-dialog").showModal();
+  $("#api-key-input").focus();
+});
+$("#connection-settings-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const key = $("#api-key-input").value.trim();
+  if (key) localStorage.setItem("mnemosyne-api-key", key);
+  else localStorage.removeItem("mnemosyne-api-key");
+  $("#connection-settings-dialog").close();
+  toast(key ? "Connection settings saved" : "API key cleared");
+  void loadGraph(true);
+});
+$("#clear-api-key").addEventListener("click", () => {
+  localStorage.removeItem("mnemosyne-api-key");
+  $("#api-key-input").value = "";
+  $("#connection-settings-dialog").close();
+  toast("API key cleared");
+  void loadGraph(true);
 });
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
 $("#zoom-in").addEventListener("click", () => zoomMainGraph(1.2));
@@ -2331,6 +2708,7 @@ async function initializeWorkspace() {
   try {
     await loadSpaces();
     showView("spaces");
+    if (state.spaceId) void loadGraph(false);
   } catch (error) {
     setSync(false, "Not connected");
     toast(error.message);
