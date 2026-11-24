@@ -178,6 +178,32 @@ async def test_graph_draft_checks_evidence_and_relationship_endpoints(
 
 
 @pytest.mark.asyncio
+async def test_graph_draft_accepts_evidence_with_punctuation_and_case_differences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    formatted_draft = json.loads(json.dumps(VALID_DRAFT))
+    formatted_draft["nodes"][0]["evidence"] = ["START — A COMMUNITY, GARDEN!"]
+    formatted_draft["relationships"][0]["evidence"] = "start—a community garden"
+    FakeAsyncClient.response = FakeResponse(json.dumps(formatted_draft))
+    FakeAsyncClient.responses = []
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(
+        graph_drafts,
+        "get_settings",
+        lambda: Settings(openrouter_api_key="test-key"),
+    )
+    monkeypatch.setattr(graph_drafts.httpx, "AsyncClient", FakeAsyncClient)
+
+    draft = await graph_drafts.create_graph_draft(
+        "I want to start a community garden.",
+        "Personal",
+        [],
+    )
+
+    assert draft.nodes[0].evidence == ["START — A COMMUNITY, GARDEN!"]
+
+
+@pytest.mark.asyncio
 async def test_graph_draft_expands_counted_software_groups_into_named_examples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -386,6 +412,39 @@ async def test_graph_draft_rejects_unverifiable_evidence(
             "Personal",
             [],
         )
+
+
+@pytest.mark.asyncio
+async def test_graph_draft_retries_unverifiable_evidence_with_free_backup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_draft = json.loads(json.dumps(VALID_DRAFT))
+    invalid_draft["nodes"][0]["evidence"] = ["a thriving garden"]
+    FakeAsyncClient.response = FakeResponse(json.dumps(VALID_DRAFT))
+    FakeAsyncClient.responses = [
+        FakeResponse(json.dumps(invalid_draft)),
+        FakeResponse(json.dumps(VALID_DRAFT)),
+    ]
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(
+        graph_drafts,
+        "get_settings",
+        lambda: Settings(openrouter_api_key="test-key"),
+    )
+    monkeypatch.setattr(graph_drafts.httpx, "AsyncClient", FakeAsyncClient)
+
+    draft = await graph_drafts.create_graph_draft(
+        "I want to start a community garden.",
+        "Personal",
+        [],
+    )
+
+    assert draft.model == graph_drafts.OPENROUTER_FREE_FALLBACK_MODEL
+    assert [request["model"] for request in FakeAsyncClient.requests] == [
+        graph_drafts.OPENROUTER_MODEL,
+        graph_drafts.OPENROUTER_FREE_FALLBACK_MODEL,
+    ]
+    assert "contiguous verbatim excerpt" in FakeAsyncClient.requests[1]["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
