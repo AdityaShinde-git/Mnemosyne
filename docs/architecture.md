@@ -58,8 +58,9 @@ does not imply that a remote database is migrated.
 `DATABASE_URL`, `API_KEY`, `OPENROUTER_API_KEY`, `EMBEDDING_PROVIDER`,
 `EMBEDDING_MODEL`, `OLLAMA_URL`, and `JOB_MAX_ATTEMPTS` are environment settings. The
 local Compose stack provides PostgreSQL/pgvector, a one-shot migration service, API,
-and worker. The API and worker must use the same database and embedding model. Compose
-persists the database and uploaded originals in named volumes.
+and worker. The API and worker must use the same database and embedding model. Uploaded
+originals are stored with their document records in PostgreSQL, which also makes uploads
+available across serverless API instances. Compose persists the database in a named volume.
 
 The Compose database credentials are development defaults, not production credentials.
 Do not expose the service publicly without HTTPS and a production authentication and

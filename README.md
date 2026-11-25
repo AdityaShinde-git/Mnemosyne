@@ -40,8 +40,8 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Interactive API documentati
 at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
 Compose starts PostgreSQL with pgvector, applies migrations, and runs the API and worker.
-The database and uploaded original files use named Docker volumes and survive ordinary
-container restarts and rebuilds. `docker compose down -v` removes those volumes and
+The database, including uploaded original files, uses a named Docker volume and survives
+ordinary container restarts and rebuilds. `docker compose down -v` removes that volume and
 **deletes the stored database and uploaded files**.
 
 ### Optional settings

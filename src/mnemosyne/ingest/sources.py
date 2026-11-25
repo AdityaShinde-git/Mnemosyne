@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 from html.parser import HTMLParser
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -44,19 +45,28 @@ def parse_file(path_value: str) -> tuple[str, str, str]:
     if not path.is_file() or path.stat().st_size > MAX_SOURCE_BYTES:
         raise ValueError("Source must be a file smaller than 20 MB")
 
+    return parse_uploaded_file(path.name, path.read_bytes(), path.as_uri())
+
+
+def parse_uploaded_file(
+    filename: str, data: bytes, source_uri: str
+) -> tuple[str, str, str]:
+    if len(data) > MAX_SOURCE_BYTES:
+        raise ValueError("Source must be a file smaller than 20 MB")
+
+    path = Path(filename)
     suffix = path.suffix.casefold()
     if suffix == ".pdf":
-        reader = PdfReader(str(path))
+        reader = PdfReader(BytesIO(data))
         content = "\n".join(page.extract_text() or "" for page in reader.pages)
     elif suffix in {".md", ".markdown", ".txt"}:
-        content = path.read_text(encoding="utf-8")
+        content = data.decode("utf-8")
     else:
         raise ValueError("Supported file types are Markdown, text, and PDF")
 
     if not content.strip():
         raise ValueError("The source file contains no extractable text")
-    return path.stem, content, path.as_uri()
-
+    return path.stem, content, source_uri
 
 async def fetch_url(url: str) -> tuple[str, str, str]:
     parsed = urlsplit(url)

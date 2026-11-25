@@ -8,11 +8,11 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mnemosyne.config import get_settings
-from mnemosyne.db.models import Chunk, Edge, Item, Job
+from mnemosyne.db.models import Chunk, DocumentFile, Edge, Item, Job
 from mnemosyne.db.session import SessionFactory
 from mnemosyne.embeddings.providers import DIMENSIONS, get_embedding_provider
 from mnemosyne.ingest.chunking import split_text
-from mnemosyne.ingest.sources import fetch_url, parse_file
+from mnemosyne.ingest.sources import fetch_url, parse_file, parse_uploaded_file
 from mnemosyne.schemas import ItemCreate, ItemUpdate
 from mnemosyne.services.items import create_item, update_item
 
@@ -102,7 +102,13 @@ async def _process(session: AsyncSession, job: Job) -> None:
         await _index_item(session, UUID(job.payload["item_id"]))
     elif job.kind in {"ingest_file", "ingest_url"}:
         if job.kind == "ingest_file":
-            title, content, source_uri = parse_file(job.payload["path"])
+            if job.source_data is not None:
+                filename = job.payload["filename"]
+                title, content, source_uri = parse_uploaded_file(
+                    filename, job.source_data, f"file:///mnemosyne-upload/{job.id}"
+                )
+            else:
+                title, content, source_uri = parse_file(job.payload["path"])
             if isinstance(job.payload.get("title"), str):
                 title = job.payload["title"]
         else:
@@ -116,7 +122,7 @@ async def _process(session: AsyncSession, job: Job) -> None:
             metadata = {"ingested_by": "worker"}
             if "mtime_ns" in job.payload:
                 metadata["file_mtime_ns"] = job.payload["mtime_ns"]
-            await create_item(
+            item, _ = await create_item(
                 session,
                 ItemCreate(
                     type="document" if job.kind == "ingest_file" else "bookmark",
@@ -136,6 +142,26 @@ async def _process(session: AsyncSession, job: Job) -> None:
                 existing.id,
                 ItemUpdate(title=title, content=content, metadata=metadata),
             )
+            item = existing
+
+        if (
+            job.kind == "ingest_file"
+            and job.source_data is not None
+            and item.source_uri == source_uri
+        ):
+            document_file = await session.get(DocumentFile, item.id)
+            if document_file is None:
+                document_file = DocumentFile(
+                    item_id=item.id,
+                    filename=job.payload["filename"],
+                    content_type=job.payload["content_type"],
+                    data=job.source_data,
+                )
+                session.add(document_file)
+            else:
+                document_file.filename = job.payload["filename"]
+                document_file.content_type = job.payload["content_type"]
+                document_file.data = job.source_data
     else:
         raise ValueError(f"Unsupported job kind: {job.kind}")
 
@@ -154,6 +180,7 @@ async def run_once() -> bool:
             job.status = "done"
             job.locked_at = None
             job.last_error = None
+            job.source_data = None
             job.updated_at = datetime.now(UTC)
             await session.commit()
     except Exception as error:

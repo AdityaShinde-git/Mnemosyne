@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mnemosyne.api.auth import require_api_key
-from mnemosyne.db.models import Decision, Edge, Item, ItemRevision, Job, Space
+from mnemosyne.db.models import Decision, DocumentFile, Edge, Item, ItemRevision, Job, Space
 from mnemosyne.db.session import get_session
 from mnemosyne.ingest.sources import MAX_SOURCE_BYTES
 from mnemosyne.schemas import (
@@ -201,11 +201,21 @@ async def get_item(item_id: UUID, session: SessionDep, space_id: UUID | None = N
 @router.get("/items/{item_id}/file")
 async def get_item_file(
     item_id: UUID, session: SessionDep, space_id: UUID | None = None
-) -> FileResponse:
+) -> Response:
     space = await _active_space(session, space_id)
     item = await _space_item(session, item_id, space.id)
     if item is None or item.type != "document" or not item.source_uri:
         raise HTTPException(status_code=404, detail="Document file not found")
+    document_file = await session.get(DocumentFile, item.id)
+    if document_file is not None:
+        return Response(
+            content=document_file.data,
+            media_type=document_file.content_type,
+            headers={
+                "Content-Disposition": "inline",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
     parsed = urlsplit(item.source_uri)
     if parsed.scheme != "file":
         raise HTTPException(status_code=404, detail="Document file not found")
@@ -551,44 +561,43 @@ async def ingest_file(
             detail="Supported file types are Markdown, text, and PDF",
         )
 
-    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name).strip(" .")
+    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name).strip(" .")[:255]
     if not safe_name:
         safe_name = f"document{suffix}"
-    stored_path = DOCUMENTS_DIR / f"{uuid4().hex}_{safe_name}"
-    stored = False
     try:
-        DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+        uploaded_data = bytearray()
         size = 0
-        with stored_path.open("wb") as destination:
-            while chunk := await file.read(64 * 1024):
-                size += len(chunk)
-                if size > MAX_SOURCE_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail="File exceeds the 20 MB upload limit",
-                    )
-                destination.write(chunk)
+        while chunk := await file.read(64 * 1024):
+            size += len(chunk)
+            if size > MAX_SOURCE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="File exceeds the 20 MB upload limit",
+                )
+            uploaded_data.extend(chunk)
         if size == 0:
             raise HTTPException(status_code=422, detail="The uploaded file is empty")
 
+        job_id = uuid4()
         job = Job(
+            id=job_id,
             kind="ingest_file",
             payload={
-                "path": str(stored_path.resolve()),
                 "title": Path(safe_name).stem[:500],
+                "filename": safe_name,
+                "content_type": mimetypes.guess_type(safe_name)[0]
+                or "application/octet-stream",
                 "space_id": str(space.id),
             },
+            source_data=bytes(uploaded_data),
             status="pending",
         )
         session.add(job)
         await session.commit()
-        stored = True
         await session.refresh(job)
         return job
     finally:
         await file.close()
-        if not stored and stored_path.exists():
-            stored_path.unlink()
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead)

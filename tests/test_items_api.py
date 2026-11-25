@@ -248,11 +248,12 @@ async def test_document_upload_is_stored_and_processed(
 ) -> None:
     documents_dir = tmp_path / "documents"
     monkeypatch.setattr("mnemosyne.api.routes.DOCUMENTS_DIR", documents_dir)
+    content = b"# Meeting\nDiscussed the observatory."
 
     response = await client.post(
         "/api/ingest/file",
         files={
-            "file": ("meeting-notes.md", b"# Meeting\nDiscussed the observatory.", "text/markdown")
+            "file": ("meeting-notes.md", content, "text/markdown")
         },
     )
 
@@ -260,15 +261,21 @@ async def test_document_upload_is_stored_and_processed(
     job = response.json()
     assert job["kind"] == "ingest_file"
     assert job["status"] == "pending"
-    stored_files = list(documents_dir.iterdir())
-    assert len(stored_files) == 1
-    assert stored_files[0].read_bytes() == b"# Meeting\nDiscussed the observatory."
+    assert not documents_dir.exists()
 
     from mnemosyne.worker import run_once
 
     assert await run_once()
     items = (await client.get("/api/items")).json()
-    assert any(item["title"] == "meeting-notes" and item["type"] == "document" for item in items)
+    document = next(
+        item
+        for item in items
+        if item["title"] == "meeting-notes" and item["type"] == "document"
+    )
+    preview = await client.get(f"/api/items/{document['id']}/file")
+    assert preview.status_code == 200
+    assert preview.content == content
+    assert preview.headers["content-type"] == "text/markdown; charset=utf-8"
 
 
 @pytest.mark.asyncio
